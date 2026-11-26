@@ -2,7 +2,7 @@
 
 Run an [Agent Spartan Protocol](https://github.com/angelopublio/agent-spartan-protocol) task across Claude Code, Codex, Cursor and Grok without carrying handoffs between them by hand. The relay reads each task's next handoff, opens the bound agent in a terminal-multiplexer pane, sends the prompt, and carries every read-only review back to the producer that records it. You watch every session and answer any of them.
 
-**Relay or Bridge?** Both move Spartan handoffs between agents. The relay drives the agents' own interactive sessions inside a terminal multiplexer, where you see and can answer each one. The [Bridge](https://github.com/angelopublio/agent-spartan-protocol-bridge) is a headless runtime that runs the clients as supervised subprocesses. Pick the relay when you want to watch and steer; pick the Bridge for unattended runs.
+The relay replaces the [Agent Spartan Protocol Bridge](https://github.com/angelopublio/agent-spartan-protocol-bridge), which is retired. A repository's `## Agent hosts` table carries over unchanged; see [Coming from the Bridge](#coming-from-the-bridge).
 
 Supported backend: [herdr](https://herdr.dev).
 
@@ -16,6 +16,7 @@ Supported backend: [herdr](https://herdr.dev).
 | `adapters/herdr/` | The herdr plugin: actions to run the relay, open a cockpit pane, and install the Cursor detection fix. |
 | `skills/spartan-relay-cockpit/` | An agent skill for the cockpit: the assistant session that conducts tasks with the relay and calls you only for decisions. |
 | `examples/hosts.example.json` | Optional launch flags and Spartan invocation token per host. |
+| `examples/agent-profiles/` | Optional wrappers that pick a different account per repository. |
 
 The relay is a separate tool, not something an agent calls. Spartan forbids a round from invoking another agent, so the hand that moves work between hosts sits outside every agent.
 
@@ -43,7 +44,7 @@ spartan-relay doctor
 
 If you bind Cursor, run the plugin action **Spartan: install Cursor detection fix** once per machine (see [Agent state detection](#agent-state-detection)). With nvm or another Node version manager, the command belongs to the Node version that installed it; reinstall after switching versions.
 
-If you use separate accounts per repository, see the Bridge's [account wrappers](https://github.com/angelopublio/agent-spartan-protocol-bridge/tree/main/docs/examples/agent-profiles); the relay works with them and does not need them.
+If different repositories sign in with different accounts, see the optional [account wrappers](examples/agent-profiles/README.md); the relay works with them and does not need them.
 
 ## Set up a repository
 
@@ -163,6 +164,16 @@ Create `~/.config/spartan-relay/hosts.json` (all repositories) or `<repository>/
 - The verdict is read from the reviewer's terminal output (`SPARTAN-VERDICT: …` on the last line), not forced through a schema.
 - Producer writes are not confined to a declared scope. Review the diff before you commit.
 - There is no event log. The task file and the panes are the record; review output is kept under `.spartan-relay/`.
+
+## Coming from the Bridge
+
+The relay reads the same `## Agent hosts` table, including `arbiter.*` rows, so bindings need no change. In each repository:
+
+1. Replace the `.spartan-bridge/` line in `.gitignore` with `.spartan-relay/`.
+2. In `AGENTS.md`, replace the Bridge's automation-authority section with the relay authority you grant (see [Set up a repository](#set-up-a-repository)), and delete `spartan-bridge/config.yaml`.
+3. Run `spartan-relay doctor` from the repository.
+
+On each machine, run `spartan-relay setup`, then remove the Bridge runtime and its `spbridge` skill if you installed them.
 
 ## Development
 
