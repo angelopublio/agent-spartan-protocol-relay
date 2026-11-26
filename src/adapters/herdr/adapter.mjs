@@ -163,11 +163,34 @@ function startAgent(state, host, mode, name, binding) {
   return agent;
 }
 
-// Some hosts collapse a long pasted prompt into a placeholder such as Cursor's
-// "[Pasted text #3 +6 lines]" and can drop the Enter that should submit it, leaving the
-// prompt sitting in the input box.
+// A host can drop the Enter that should submit a pasted prompt, leaving the prompt in its
+// input box: collapsed into a placeholder such as Cursor's "[Pasted text #3 +6 lines]", or
+// shown in full. Cursor draws the input box between a line of ▄ and a line of ▀; an idle box
+// holds only its hint, such as "→ Add a follow-up".
+const IDLE_INPUT_HINTS = /^(?:→\s*)?(?:Add a follow-up|Plan, search, build anything|Ask, edit, or run anything)?$/i;
+
 export function hasPendingPaste(screen) {
-  return /\[Pasted text #\d+[^\]]*\]/.test(screen || "");
+  const text = screen || "";
+  if (/\[Pasted text #\d+[^\]]*\]/.test(text)) return true;
+  const lines = text.split("\n");
+  let bottom = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*▀{10,}\s*$/.test(lines[i])) {
+      bottom = i;
+      break;
+    }
+  }
+  if (bottom < 0) return false;
+  let top = -1;
+  for (let i = bottom - 1; i >= 0; i--) {
+    if (/^\s*▄{10,}\s*$/.test(lines[i])) {
+      top = i;
+      break;
+    }
+  }
+  if (top < 0) return false;
+  const content = lines.slice(top + 1, bottom).map((l) => l.replace(/ctrl\+c to stop/i, "").trim()).filter(Boolean).join(" ");
+  return !IDLE_INPUT_HINTS.test(content);
 }
 
 // Sends Enter once when the agent's input box still holds an unsent pasted prompt.
@@ -175,7 +198,7 @@ function submitPendingPaste(agent) {
   if (agent.pasteSubmitted) return false;
   let screen = "";
   try {
-    screen = herdr(["agent", "read", agent.name, "--source", "recent", "--lines", "15"], { raw: true });
+    screen = herdr(["agent", "read", agent.name, "--source", "recent", "--lines", "80"], { raw: true });
   } catch {
     return false;
   }
