@@ -39,4 +39,5 @@ Call only for a blocked task, a human-operator step, a decision the repository r
 - Run a credential tool (`op`, keychains), read secret values, or approve an authorization prompt on the human's behalf. A human-run command may carry a secret reference; you write it, the human runs it.
 - Commit, push, merge, or publish without the authorization `AGENTS.md` or the human gives.
 - Edit a task artifact's verdicts or a reviewer's findings, or take a Spartan role yourself.
+- Invent, seed, or renumber handoff identifiers. The planner issues them in the protocol's format, `HX-` and a number starting at `HX-001`, and each round advances them.
 - Split, close, or type into panes you did not open, except the `relay` pane.

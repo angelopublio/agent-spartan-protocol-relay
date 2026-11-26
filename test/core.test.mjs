@@ -103,6 +103,7 @@ test("nextAction stops on completion, human-operator and disagreements", () => {
   assert.throws(() => nextAction(parseTask(task({ status: "completed" }))), (e) => e instanceof Stop && e.ok);
   assert.throws(() => nextAction(parseTask(task({ role: "human-operator", promptRole: "human-operator" }))), /human-operator/);
   assert.throws(() => nextAction(parseTask(task({ promptId: "HX-009" }))), /disagree/);
+  assert.throws(() => nextAction(parseTask(task({ id: "H1-001" }))), /not a Spartan handoff identifier/);
   assert.throws(() => nextAction(parseTask(task({ promptRole: "implementer" }))), /roles disagree/);
   assert.throws(() => nextAction(parseTask(task({ permission: "maybe" }))), /Permission/);
 });

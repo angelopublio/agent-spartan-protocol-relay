@@ -141,7 +141,7 @@ The relay stops whenever a human decision is needed and leaves every pane open. 
 | --- | --- |
 | `task completed` | Review the diff and commit. |
 | `task is blocked` / `next role is human-operator` | Read the task file's blockers and next action, and decide. |
-| `handoff identifiers disagree` / `roles disagree` | The last round wrote an inconsistent envelope. Ask that host to regenerate the whole `## Next Handoff`. |
+| `handoff identifiers disagree` / `roles disagree` / `not a Spartan handoff identifier` | The last round wrote an inconsistent envelope, or an identifier outside the protocol's `HX-NNN` format. Ask that host to regenerate the whole `## Next Handoff`. |
 | `no SPARTAN-VERDICT line found` | Read the reviewer's pane. Rerun if it simply forgot the final line. |
 | `the read-only reviewer changed the working tree` | Check `git status`, undo anything the reviewer wrote, then rerun. |
 | `still the outstanding handoff` / `did not adopt` | The producer finished without advancing the task, or is still working. Read its pane; rerun once it settles. |

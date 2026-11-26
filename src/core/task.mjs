@@ -3,6 +3,9 @@ import { Stop } from "./errors.mjs";
 
 export const VERDICT_RE = /SPARTAN-VERDICT:\s*(APPROVED|CHANGES_REQUESTED|BLOCKED)\b/g;
 
+// Spartan handoff identifiers are the literal prefix `HX-` and a number, such as HX-001.
+export const HANDOFF_ID_RE = /^HX-\d+$/;
+
 // Reads a Spartan task artifact. The relay never writes it.
 export function parseTask(text, file = "task") {
   const normalized = text.replace(/\r\n/g, "\n");
@@ -49,8 +52,12 @@ export function nextAction(task) {
   if (["human-operator", "none"].includes(meta.next_role)) throw new Stop(`next role is ${meta.next_role}`);
   if (!envelope) throw new Stop("## Next Handoff has no advisory block followed by a prompt block");
 
-  const promptHandoff = envelope.prompt.match(/\(handoff (HX-\d+)\)/)?.[1];
+  const promptHandoff = envelope.prompt.match(/\(handoff ([^)\s]+)\)/)?.[1];
   const promptRole = envelope.prompt.match(/\bAct as ([a-z-]+)/)?.[1];
+  if (!promptHandoff) throw new Stop(`the prompt block names no "(handoff HX-NNN)"; it must name the same identifier as next_handoff_id (${meta.next_handoff_id})`);
+  for (const [where, id] of [["frontmatter next_handoff_id", meta.next_handoff_id], ['advisory "- Handoff:"', envelope.handoff], ['prompt "(handoff …)"', promptHandoff]]) {
+    if (!HANDOFF_ID_RE.test(id || "")) throw new Stop(`${where} is "${id}", which is not a Spartan handoff identifier: use HX- and a number, such as HX-001, and ask the producer to regenerate the whole ## Next Handoff`);
+  }
   const ids = [meta.next_handoff_id, envelope.handoff, promptHandoff];
   const roles = [meta.next_role, envelope.role, promptRole];
   if (new Set(ids).size !== 1) throw new Stop(`handoff identifiers disagree (frontmatter, advisory, prompt): ${ids.join(", ")}`);
