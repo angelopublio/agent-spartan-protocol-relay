@@ -3,8 +3,9 @@ import { Stop } from "./errors.mjs";
 
 export const VERDICT_RE = /SPARTAN-VERDICT:\s*(APPROVED|CHANGES_REQUESTED|BLOCKED)\b/g;
 
-// Spartan handoff identifiers are the literal prefix `HX-` and a number, such as HX-001.
-export const HANDOFF_ID_RE = /^HX-\d+$/;
+// Spartan's canonical handoff identifier: the literal prefix `HX-` and either exactly three
+// digits (HX-001 to HX-999) or four or more digits without a leading zero (HX-1000 onward).
+export const HANDOFF_ID_RE = /^HX-(?!000$)(?:\d{3}|[1-9]\d{3,})$/;
 
 // Reads a Spartan task artifact. The relay never writes it.
 export function parseTask(text, file = "task") {
@@ -56,7 +57,7 @@ export function nextAction(task) {
   const promptRole = envelope.prompt.match(/\bAct as ([a-z-]+)/)?.[1];
   if (!promptHandoff) throw new Stop(`the prompt block names no "(handoff HX-NNN)"; it must name the same identifier as next_handoff_id (${meta.next_handoff_id})`);
   for (const [where, id] of [["frontmatter next_handoff_id", meta.next_handoff_id], ['advisory "- Handoff:"', envelope.handoff], ['prompt "(handoff …)"', promptHandoff]]) {
-    if (!HANDOFF_ID_RE.test(id || "")) throw new Stop(`${where} is "${id}", which is not a Spartan handoff identifier: use HX- and a number, such as HX-001, and ask the producer to regenerate the whole ## Next Handoff`);
+    if (!HANDOFF_ID_RE.test(id || "")) throw new Stop(`${where} is "${id}", which is not a Spartan handoff identifier (HX-001 to HX-999, then HX-1000 onward): ask the producer to regenerate the whole ## Next Handoff`);
   }
   const ids = [meta.next_handoff_id, envelope.handoff, promptHandoff];
   const roles = [meta.next_role, envelope.role, promptRole];
