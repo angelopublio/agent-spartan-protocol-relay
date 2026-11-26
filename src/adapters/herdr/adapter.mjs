@@ -260,6 +260,38 @@ function describeLaunch(name, kind, args) {
   return `herdr agent start ${name} --kind ${kind} --pane <new> -- ${args.join(" ")}`;
 }
 
+// A workspace belongs to a repository when one of its `cockpit` or `relay` panes was opened
+// there, or, failing that, when its label is the one asked for.
+export function findWorkspace({ panes, workspaces, root, label }) {
+  const inRoot = (p) => [p.cwd, p.foreground_cwd].some((c) => c === root || (c || "").startsWith(`${root}/`));
+  const owned = panes.find((p) => RESERVED_LABELS.has((p.label || "").toLowerCase()) && inRoot(p));
+  if (owned) return workspaces.find((w) => w.workspace_id === owned.workspace_id) || null;
+  return workspaces.find((w) => w.label === label) || null;
+}
+
+// Focuses the repository's workspace, or creates it with a `cockpit` pane above a `relay`
+// pane. Nothing is stored in the repository: the workspace is rebuilt from its folder.
+export function openWorkspace(root, label) {
+  const workspaces = herdr(["workspace", "list"])?.result?.workspaces || [];
+  const panes = herdr(["pane", "list"])?.result?.panes || [];
+  const found = findWorkspace({ panes, workspaces, root, label });
+  if (found) {
+    herdr(["workspace", "focus", found.workspace_id]);
+    log(`●  workspace ${found.label} (${found.workspace_id}) already exists for ${root}; focused it`);
+    return found.workspace_id;
+  }
+  const created = herdr(["workspace", "create", "--cwd", root, "--label", label, "--focus"])?.result || {};
+  const ws = created.workspace?.workspace_id || created.root_pane?.workspace_id;
+  const first = created.root_pane?.pane_id || (herdr(["pane", "list"])?.result?.panes || []).find((p) => p.workspace_id === ws)?.pane_id;
+  if (!ws || !first) throw new Stop("herdr did not return the new workspace and its first pane");
+  herdr(["pane", "rename", first, "cockpit"]);
+  const relay = herdr(["pane", "split", first, "--direction", "down", "--ratio", "0.65", "--cwd", root, "--no-focus"])?.result?.pane?.pane_id;
+  if (!relay) throw new Stop("could not open the relay pane");
+  herdr(["pane", "rename", relay, "relay"]);
+  log(`●  created workspace ${label} (${ws}) for ${root}: cockpit ${first}, relay ${relay}`);
+  return ws;
+}
+
 export const herdrAdapter = {
   name: "herdr",
   namePrefix: NAME_PREFIX,

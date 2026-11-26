@@ -9,7 +9,7 @@ One workspace per repository, with two panes the human keeps:
 - `cockpit`: this session.
 - `relay`: a plain shell where `spartan-relay` runs. The human also runs credential commands there.
 
-The relay opens agent panes in the same tab, at least 60 columns wide, and never splits panes labelled `cockpit` or `relay`. The herdr plugin's actions *Spartan: open cockpit pane* and *Spartan: run relay on the active task* set this up.
+`spartan-relay workspace`, run from the repository, focuses this workspace or recreates it with both panes; nothing about the workspace is stored in the repository. The relay opens agent panes in the same tab, at least 60 columns wide, and never splits panes labelled `cockpit` or `relay` while another pane fits.
 
 ## Starting the planner
 

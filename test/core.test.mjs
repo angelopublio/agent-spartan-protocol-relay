@@ -152,3 +152,23 @@ test("versionAtLeast compares dotted versions", async () => {
   assert.equal(versionAtLeast("1.0.0", "0.9.0"), true);
   assert.equal(versionAtLeast("none", "0.9.0"), false);
 });
+
+test("findWorkspace matches a cockpit or relay pane opened in the repository, then the label", async () => {
+  const { findWorkspace } = await import("../src/adapters/herdr/adapter.mjs");
+  const workspaces = [{ workspace_id: "w1", label: "other" }, { workspace_id: "w2", label: "repo" }, { workspace_id: "w3", label: "named" }];
+  const panes = [
+    { workspace_id: "w1", label: "cockpit", cwd: "/x/other" },
+    { workspace_id: "w2", label: "relay", cwd: "/x/repo/sub", foreground_cwd: "/x/repo/sub" },
+    { workspace_id: "w3", cwd: "/x/repo" },
+  ];
+  assert.equal(findWorkspace({ panes, workspaces, root: "/x/repo", label: "anything" }).workspace_id, "w2");
+  assert.equal(findWorkspace({ panes: [], workspaces, root: "/x/repo", label: "named" }).workspace_id, "w3");
+  assert.equal(findWorkspace({ panes, workspaces, root: "/x/repository", label: "none" }), null);
+});
+
+test("parseWorkspaceArgs resolves the directory and the label", async () => {
+  const { parseWorkspaceArgs } = await import("../src/cli.mjs");
+  assert.deepEqual(parseWorkspaceArgs(["--label", "demo"], "/x/repo"), { dir: "/x/repo", label: "demo" });
+  assert.deepEqual(parseWorkspaceArgs(["../other"], "/x/repo"), { dir: "/x/other", label: null });
+  assert.throws(() => parseWorkspaceArgs(["--nope"], "/x"), Stop);
+});

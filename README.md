@@ -13,7 +13,7 @@ Supported backend: [herdr](https://herdr.dev).
 | `bin/spartan-relay.mjs` | The `spartan-relay` command. |
 | `src/core/` | Protocol logic: task envelopes, `AGENTS.md` bindings, review cycles, arbitration, persistence prompts. |
 | `src/adapters/herdr/` | Every herdr call: panes, agents, prompts, waits, output. |
-| `adapters/herdr/` | The herdr plugin: actions to run the relay, open a cockpit pane, and install the Cursor detection fix. |
+| `adapters/herdr/` | The herdr plugin: actions to open a repository's workspace, run the relay, open a cockpit pane, and install the Cursor detection fix. |
 | `skills/spartan-relay-cockpit/` | An agent skill for the cockpit: the assistant session that conducts tasks with the relay and calls you only for decisions. |
 | `examples/hosts.example.json` | Optional launch flags and Spartan invocation token per host. |
 | `examples/agent-profiles/` | Optional wrappers that pick a different account per repository. |
@@ -87,7 +87,13 @@ Effort `none` sends no effort argument.
 
 ## Run a task
 
-1. Start herdr and give the repository its own workspace. Keep two panes: `cockpit` for your assistant session and `relay` for the relay. The plugin action **Spartan: open cockpit pane** opens the first.
+1. Start herdr and open the repository's workspace:
+
+   ```sh
+   cd <repository> && spartan-relay workspace
+   ```
+
+   It focuses the repository's workspace when one exists, and otherwise creates it, named after the folder (or `--label <name>`), with a `cockpit` pane above a `relay` pane. Nothing is stored in the repository: everything the work needs is in `AGENTS.md` and `spartan/tasks/`, so a closed workspace, a new machine, or a cleared herdr session is one command away. herdr also restores its workspaces when it restarts. The plugin action **Spartan: open workspace for this repository** does the same from any pane.
 2. Start the planner with the model and effort its row binds, and run the first Spartan round, for example `/spartan <request>` in Claude Code. The round writes the task file and its first handoff.
 3. In the `relay` pane, from the repository root:
 
