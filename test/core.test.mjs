@@ -104,6 +104,8 @@ test("nextAction stops on completion, human-operator and disagreements", () => {
   assert.throws(() => nextAction(parseTask(task({ role: "human-operator", promptRole: "human-operator" }))), /human-operator/);
   assert.throws(() => nextAction(parseTask(task({ promptId: "HX-009" }))), /disagree/);
   assert.throws(() => nextAction(parseTask(task({ id: "H1-001" }))), /not a Spartan handoff identifier/);
+  for (const bad of ["HX-000", "HX-1", "HX-01", "HX-0001", "HX-0999"]) assert.throws(() => nextAction(parseTask(task({ id: bad }))), /not a Spartan handoff identifier/);
+  for (const good of ["HX-001", "HX-999", "HX-1000", "HX-1234"]) assert.equal(nextAction(parseTask(task({ id: good }))).id, good);
   assert.throws(() => nextAction(parseTask(task({ promptRole: "implementer" }))), /roles disagree/);
   assert.throws(() => nextAction(parseTask(task({ permission: "maybe" }))), /Permission/);
 });
