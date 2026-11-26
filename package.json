@@ -1,0 +1,35 @@
+{
+  "name": "agent-spartan-protocol-relay",
+  "version": "0.1.0",
+  "description": "Relay and cockpit for the Agent Spartan Protocol in terminal multiplexers: hands each Spartan handoff to the next bound agent and runs bounded review loops.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/angelopublio/agent-spartan-protocol-relay.git"
+  },
+  "bin": {
+    "spartan-relay": "bin/spartan-relay.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "adapters/",
+    "skills/",
+    "examples/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "agent-spartan-protocol",
+    "herdr",
+    "herdr-plugin",
+    "coding-agents",
+    "handoff",
+    "code-review"
+  ]
+}

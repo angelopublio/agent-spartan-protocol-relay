@@ -1,0 +1,24 @@
+id = "spartan-relay"
+name = "Spartan Relay"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Run the Agent Spartan Protocol relay on the active task of the focused pane's repository, open a cockpit pane, and install the Cursor detection fix."
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "run-relay"
+title = "Spartan: run relay on the active task"
+contexts = ["pane"]
+command = ["node", "actions/run-relay.mjs"]
+
+[[actions]]
+id = "open-cockpit"
+title = "Spartan: open cockpit pane"
+contexts = ["pane"]
+command = ["node", "actions/open-cockpit.mjs"]
+
+[[actions]]
+id = "install-cursor-detection"
+title = "Spartan: install Cursor detection fix"
+contexts = ["pane"]
+command = ["node", "actions/install-cursor-detection.mjs"]

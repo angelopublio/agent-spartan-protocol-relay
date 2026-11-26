@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy to ~/.config/spartan-relay/hosts.json (every repository) or to <repo>/.spartan-relay/hosts.json (that repository only; the folder is git-ignored). Use it only to change launch flags or the Spartan invocation token. Model and effort per role come from the ## Agent hosts table in AGENTS.md, so do not add model flags here. A field you set replaces that host's default field, so keep the sandbox flags.",
+
+  "Claude Code": {
+    "token": "/spartan:spartan"
+  },
+
+  "Codex": {
+    "producer": ["--sandbox", "workspace-write", "--ask-for-approval", "never"]
+  }
+}
