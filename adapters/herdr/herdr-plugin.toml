@@ -2,8 +2,14 @@ id = "spartan-relay"
 name = "Spartan Relay"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Run the Agent Spartan Protocol relay on the active task of the focused pane's repository, open a cockpit pane, and install the Cursor detection fix."
+description = "Open a repository's cockpit and relay workspace, run the Agent Spartan Protocol relay on its active task, and install the Cursor detection fix."
 platforms = ["macos", "linux"]
+
+[[actions]]
+id = "open-workspace"
+title = "Spartan: open workspace for this repository"
+contexts = ["pane"]
+command = ["node", "actions/open-workspace.mjs"]
 
 [[actions]]
 id = "run-relay"

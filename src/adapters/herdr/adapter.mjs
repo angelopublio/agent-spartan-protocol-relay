@@ -76,16 +76,20 @@ function liveAgents() {
   return herdr(["agent", "list"])?.result?.agents || [];
 }
 
-// The relay splits the widest pane of its own tab that the human has not reserved: side by
-// side when both halves stay wide enough, otherwise one above the other. Only when no pane
-// qualifies does the agent open in a tab of its own per task.
-export function choosePaneSplit(panes, reserved = new Set()) {
-  const candidates = panes.filter((p) => !reserved.has(p.pane_id));
-  const widest = candidates.slice().sort((x, y) => y.rect.width - x.rect.width || y.rect.height - x.rect.height)[0];
+// The relay splits the widest pane of its own tab, preferring panes the human has not
+// reserved: side by side when both halves stay wide enough, otherwise one above the other.
+// Only when no pane qualifies does the agent open in a tab of its own per task.
+function splitOf(panes) {
+  const widest = panes.slice().sort((x, y) => y.rect.width - x.rect.width || y.rect.height - x.rect.height)[0];
   if (!widest) return null;
   if (widest.rect.width >= 2 * MIN_AGENT_COLS) return { pane: widest.pane_id, direction: "right" };
   if (widest.rect.width >= MIN_AGENT_COLS && widest.rect.height >= 2 * MIN_AGENT_ROWS) return { pane: widest.pane_id, direction: "down" };
   return null;
+}
+
+// Reserved panes are split only when no other pane in the tab is wide enough.
+export function choosePaneSplit(panes, reserved = new Set()) {
+  return splitOf(panes.filter((p) => !reserved.has(p.pane_id))) || splitOf(panes);
 }
 
 function agentPane(state, env) {
@@ -258,6 +262,38 @@ function requireEnvironment() {
 
 function describeLaunch(name, kind, args) {
   return `herdr agent start ${name} --kind ${kind} --pane <new> -- ${args.join(" ")}`;
+}
+
+// A workspace belongs to a repository when one of its `cockpit` or `relay` panes was opened
+// there, or, failing that, when its label is the one asked for.
+export function findWorkspace({ panes, workspaces, root, label }) {
+  const inRoot = (p) => [p.cwd, p.foreground_cwd].some((c) => c === root || (c || "").startsWith(`${root}/`));
+  const owned = panes.find((p) => RESERVED_LABELS.has((p.label || "").toLowerCase()) && inRoot(p));
+  if (owned) return workspaces.find((w) => w.workspace_id === owned.workspace_id) || null;
+  return workspaces.find((w) => w.label === label) || null;
+}
+
+// Focuses the repository's workspace, or creates it with a `cockpit` pane above a `relay`
+// pane. Nothing is stored in the repository: the workspace is rebuilt from its folder.
+export function openWorkspace(root, label) {
+  const workspaces = herdr(["workspace", "list"])?.result?.workspaces || [];
+  const panes = herdr(["pane", "list"])?.result?.panes || [];
+  const found = findWorkspace({ panes, workspaces, root, label });
+  if (found) {
+    herdr(["workspace", "focus", found.workspace_id]);
+    log(`●  workspace ${found.label} (${found.workspace_id}) already exists for ${root}; focused it`);
+    return found.workspace_id;
+  }
+  const created = herdr(["workspace", "create", "--cwd", root, "--label", label, "--focus"])?.result || {};
+  const ws = created.workspace?.workspace_id || created.root_pane?.workspace_id;
+  const first = created.root_pane?.pane_id || (herdr(["pane", "list"])?.result?.panes || []).find((p) => p.workspace_id === ws)?.pane_id;
+  if (!ws || !first) throw new Stop("herdr did not return the new workspace and its first pane");
+  herdr(["pane", "rename", first, "cockpit"]);
+  const relay = herdr(["pane", "split", first, "--direction", "down", "--ratio", "0.65", "--cwd", root, "--no-focus"])?.result?.pane?.pane_id;
+  if (!relay) throw new Stop("could not open the relay pane");
+  herdr(["pane", "rename", relay, "relay"]);
+  log(`●  created workspace ${label} (${ws}) for ${root}: cockpit ${first}, relay ${relay}`);
+  return ws;
 }
 
 export const herdrAdapter = {

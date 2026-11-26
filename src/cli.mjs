@@ -1,6 +1,9 @@
 import { Stop, log } from "./core/errors.mjs";
 import { run } from "./core/relay.mjs";
-import { herdrAdapter } from "./adapters/herdr/adapter.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { herdrAdapter, openWorkspace } from "./adapters/herdr/adapter.mjs";
 import { doctor } from "./setup/doctor.mjs";
 import { setup } from "./setup/setup.mjs";
 
@@ -13,6 +16,9 @@ Usage (inside a herdr pane, from the target repository):
                 [--review-timeout-min 30] [--dry-run]
   spartan-relay setup [--yes]   install what is missing, asking before each step
   spartan-relay doctor          report what is ready and what is missing
+  spartan-relay workspace [<dir>] [--label <name>]
+                                focus the repository's herdr workspace, or create it
+                                with a cockpit pane above a relay pane
 
 It reads the Next Handoff a Spartan round wrote into the task file, opens the bound host,
 sends the prompt, waits, and carries a read-only reviewer's result back to the producer
@@ -57,6 +63,33 @@ export function parseArgs(argv) {
   return opts;
 }
 
+export function parseWorkspaceArgs(argv, cwd = process.cwd()) {
+  let dir = null;
+  let label = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--label") {
+      if (i + 1 >= argv.length) throw new Stop("--label needs a value");
+      label = argv[++i];
+    } else if (a.startsWith("-")) throw new Stop(`unknown option ${a}`);
+    else if (dir) throw new Stop("give at most one directory");
+    else dir = a;
+  }
+  return { dir: path.resolve(cwd, dir || "."), label };
+}
+
+function workspace(argv) {
+  const { dir, label } = parseWorkspaceArgs(argv);
+  if (!fs.existsSync(dir)) throw new Stop(`${dir} does not exist`);
+  let root = fs.realpathSync(dir);
+  try {
+    root = execFileSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    /* not a Git repository: use the folder itself */
+  }
+  openWorkspace(root, label || path.basename(root));
+}
+
 export function main(argv) {
   process.stdout.on("error", (e) => {
     if (e.code === "EPIPE") process.exit(0);
@@ -64,6 +97,7 @@ export function main(argv) {
   });
   try {
     if (argv[0] === "doctor") process.exit(doctor() ? 0 : 1);
+    if (argv[0] === "workspace") return workspace(argv.slice(1));
     if (argv[0] === "setup") process.exit(setup({ yes: argv.includes("--yes") }) ? 0 : 1);
     const opts = parseArgs(argv);
     if (opts.help) {
