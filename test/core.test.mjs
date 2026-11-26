@@ -176,3 +176,10 @@ test("parseWorkspaceArgs resolves the directory and the label", async () => {
   assert.deepEqual(parseWorkspaceArgs(["../other"], "/x/repo"), { dir: "/x/other", label: null });
   assert.throws(() => parseWorkspaceArgs(["--nope"], "/x"), Stop);
 });
+
+test("hasPendingPaste recognises a collapsed, unsent pasted prompt", async () => {
+  const { hasPendingPaste } = await import("../src/adapters/herdr/adapter.mjs");
+  assert.equal(hasPendingPaste(" ▄▄▄\n  → [Pasted text #3 +6 lines]\n ▀▀▀"), true);
+  assert.equal(hasPendingPaste("  → Add a follow-up   ctrl+c to stop"), false);
+  assert.equal(hasPendingPaste(""), false);
+});
