@@ -120,7 +120,7 @@ The `spartan-relay-cockpit` skill turns an agent session in the `cockpit` pane i
 
 ## Panes
 
-Every agent the relay starts opens in the relay's own tab, so one view shows them all. The relay splits the widest pane that is not labelled `cockpit` or `relay`: side by side when both halves keep at least 60 columns, one above the other otherwise. Only when no pane qualifies does the agent open in a tab of its own, named `sp-NNNN`.
+Every agent the relay starts opens in the relay's own tab, so one view shows them all. The relay splits the widest pane, preferring panes not labelled `cockpit` or `relay`: side by side when both halves keep at least 60 columns, one above the other otherwise. Only when no pane qualifies does the agent open in a tab of its own, named `sp-NNNN`.
 
 ## Agent state detection
 

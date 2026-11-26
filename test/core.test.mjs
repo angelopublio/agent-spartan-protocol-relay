@@ -143,6 +143,7 @@ test("choosePaneSplit keeps agents at least MIN_AGENT_COLS wide and skips reserv
   assert.deepEqual(choosePaneSplit([pane("a", 80, 69)]), { pane: "a", direction: "down" });
   assert.equal(choosePaneSplit([pane("a", MIN_AGENT_COLS - 1, 69)]), null);
   assert.deepEqual(choosePaneSplit([pane("cockpit", 200, 69), pane("b", 70, 40)], new Set(["cockpit"])), { pane: "b", direction: "down" });
+  assert.deepEqual(choosePaneSplit([pane("cockpit", 200, 40), pane("relay", 200, 20)], new Set(["cockpit", "relay"])), { pane: "cockpit", direction: "right" });
 });
 
 test("versionAtLeast compares dotted versions", async () => {
