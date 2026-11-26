@@ -127,7 +127,7 @@ Every agent the relay starts opens in the relay's own tab, so one view shows the
 The relay waits on herdr's reading of each agent's state. herdr reads some hosts, Cursor among them, from the bottom lines of their pane, so the relay guards against misreadings:
 
 - Agent panes stay at least 60 columns wide, so a host's footer does not wrap over the lines herdr reads.
-- After herdr reports a stalled prompt, the relay checks whether the prompt is still sitting unsent in the agent's input box, as Cursor's collapsed `[Pasted text …]` placeholder can be, and presses Enter once. It then waits up to 120 seconds for the agent to start before stopping. It never sends a prompt twice.
+- After herdr reports a stalled prompt, the relay checks whether the prompt is still sitting unsent in the agent's input box, collapsed into Cursor's `[Pasted text …]` placeholder or shown in full, and presses Enter once. It then waits up to 120 seconds for the agent to start before stopping. It never sends a prompt twice.
 - A round counts as finished only when the agent stays idle for 10 seconds, so a brief idle reading while the host redraws does not end it.
 - The task file, not the multiplexer's status, decides whether a round advanced.
 

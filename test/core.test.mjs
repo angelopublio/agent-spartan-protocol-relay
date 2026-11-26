@@ -179,7 +179,11 @@ test("parseWorkspaceArgs resolves the directory and the label", async () => {
 
 test("hasPendingPaste recognises a collapsed, unsent pasted prompt", async () => {
   const { hasPendingPaste } = await import("../src/adapters/herdr/adapter.mjs");
-  assert.equal(hasPendingPaste(" ▄▄▄\n  → [Pasted text #3 +6 lines]\n ▀▀▀"), true);
-  assert.equal(hasPendingPaste("  → Add a follow-up   ctrl+c to stop"), false);
-  assert.equal(hasPendingPaste(""), false);
+  const box = (inner) => ` ${"▄".repeat(40)}\n${inner}\n ${"▀".repeat(40)}\n  Grok 4.6 High Fast   Run Everything`;
+  assert.equal(hasPendingPaste(box("  → [Pasted text #3 +6 lines]")), true);
+  assert.equal(hasPendingPaste(box("  Open `spartan/tasks/0001-x.md` (handoff HX-009).\n\n  Return only the next handoff.")), true);
+  assert.equal(hasPendingPaste(box("  → Add a follow-up                ctrl+c to stop")), false);
+  assert.equal(hasPendingPaste(box("  → Plan, search, build anything")), false);
+  assert.equal(hasPendingPaste(box("")), false);
+  assert.equal(hasPendingPaste("no input box here"), false);
 });
