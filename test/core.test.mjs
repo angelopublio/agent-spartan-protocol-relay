@@ -1,10 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Stop } from "../src/core/errors.mjs";
 import { DEFAULT_HOSTS, resolveHost, hostForKind, withToken } from "../src/core/hosts.mjs";
 import { parseBindings, bindingFor, modelArgs } from "../src/core/bindings.mjs";
 import { parseTask, nextAction, lastVerdict } from "../src/core/task.mjs";
 import { afterReview, persistPrompt } from "../src/core/relay.mjs";
+import { reviewHistory, reviewCycle, readHistory, captureName } from "../src/core/history.mjs";
 import { parseArgs } from "../src/cli.mjs";
 import { choosePaneSplit, MIN_AGENT_COLS } from "../src/adapters/herdr/adapter.mjs";
 
@@ -130,6 +134,84 @@ test("persistPrompt names the handoff and the capture", () => {
   const p = persistPrompt({ rel: "spartan/tasks/0001-x.md", action: { id: "HX-003", role: "reviewer" }, verdict: "APPROVED", capture: ".spartan-relay/0001/HX-003-review.txt", authorization: "persist only", next: "", arbiter: false });
   assert.match(p, /\(handoff HX-003\)/);
   assert.match(p, /\.spartan-relay\/0001\/HX-003-review\.txt/);
+});
+
+test("reviewHistory reads one phase's durable state from the capture names", () => {
+  const names = [
+    "HX-006-plan-review.txt",
+    "HX-004-plan-review.txt",
+    "HX-021-plan-arbitration.txt",
+    "HX-030-implementation-review.txt",
+    "hosts.json",
+  ];
+  const plan = reviewHistory(names, "plan");
+  assert.deepEqual(plan.reviews, ["HX-004", "HX-006"]); // handoff order, not readdir order
+  assert.equal(plan.arbitration, "HX-021");
+  assert.deepEqual(plan.legacy, []);
+  const implementation = reviewHistory(names, "implementation");
+  assert.deepEqual(implementation.reviews, ["HX-030"]);
+  assert.equal(implementation.arbitration, null);
+  assert.deepEqual(reviewHistory(["HX-1000-plan-review.txt", "HX-999-plan-review.txt"], "plan").reviews, ["HX-999", "HX-1000"]);
+});
+
+test("reviewCycle resumes the review budget from the captures instead of granting it again", () => {
+  const opts = { reviewKind: "plan", maxCycles: 3, dir: ".spartan-relay/0002" };
+  const two = reviewHistory(["HX-004-plan-review.txt", "HX-006-plan-review.txt"], "plan");
+  // Two reviews are captured, so the next one is the third and last: the arbiter follows it.
+  assert.equal(reviewCycle(two, { ...opts, id: "HX-008" }), 3);
+  assert.equal(afterReview({ verdict: "CHANGES_REQUESTED", arbiter: false, reviewKind: "plan", cycle: 3, maxCycles: 3, arbiterBound: true }).toArbiter, true);
+  // A handoff already captured is the same round again, after a persist round that failed.
+  assert.equal(reviewCycle(two, { ...opts, id: "HX-006" }), 2);
+  const three = reviewHistory(["HX-004-plan-review.txt", "HX-006-plan-review.txt", "HX-008-plan-review.txt"], "plan");
+  assert.throws(() => reviewCycle(three, { ...opts, id: "HX-010" }), /plan review limit \(3\) reached: HX-004, HX-006, HX-008/);
+  assert.throws(() => reviewCycle(three, { ...opts, id: "HX-010" }), /\.spartan-relay\/0002/);
+  assert.equal(reviewCycle(reviewHistory([], "plan"), { ...opts, id: "HX-004" }), 1);
+});
+
+test("reviewCycle keeps an arbitrated phase closed across a restart", () => {
+  const opts = { reviewKind: "plan", maxCycles: 3, dir: ".spartan-relay/0002" };
+  const arbitrated = reviewHistory(["HX-004-plan-review.txt", "HX-021-plan-arbitration.txt"], "plan");
+  assert.throws(() => reviewCycle(arbitrated, { ...opts, id: "HX-022" }), /was arbitrated \(HX-021\); another review of it is not allowed/);
+  assert.throws(() => reviewCycle(arbitrated, { ...opts, id: "HX-030", arbiter: true }), /was already arbitrated \(HX-021\)/);
+  // Re-running the arbitration itself is allowed: its persist round can have failed after it.
+  assert.equal(reviewCycle(arbitrated, { ...opts, id: "HX-021", arbiter: true }), 1);
+  // The other phase is untouched by it.
+  assert.equal(reviewCycle(reviewHistory(["HX-021-plan-arbitration.txt"], "implementation"), { ...opts, reviewKind: "implementation", id: "HX-030" }), 1);
+});
+
+test("reviewHistory counts a phase-less capture against the phase it is asked about", () => {
+  const legacy = ["HX-002-review.txt", "HX-004-review.txt", "HX-009-arbitration.txt"];
+  const h = reviewHistory(legacy, "implementation");
+  assert.deepEqual(h.reviews, ["HX-002", "HX-004"]);
+  assert.equal(h.arbitration, "HX-009");
+  assert.deepEqual(h.legacy, legacy);
+  // The same names answer for either phase, because the name says nothing about the phase.
+  assert.deepEqual(reviewHistory(legacy, "plan").reviews, ["HX-002", "HX-004"]);
+  // Every stop names the phase-less files it counted, so the attribution is never silent.
+  assert.throws(
+    () => reviewCycle(h, { reviewKind: "implementation", id: "HX-011", maxCycles: 3, dir: ".spartan-relay/0002" }),
+    /HX-002-review\.txt, HX-004-review\.txt, HX-009-arbitration\.txt name no phase and were counted against the implementation phase/,
+  );
+  // One handoff captured under both namings spends one cycle, not two.
+  assert.deepEqual(reviewHistory(["HX-004-review.txt", "HX-004-implementation-review.txt"], "implementation").reviews, ["HX-004"]);
+});
+
+test("readHistory reads back what captureName writes, and a missing folder is empty state", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "spartan-relay-test-"));
+  try {
+    const dir = path.join(".spartan-relay", "0001");
+    assert.deepEqual(readHistory(repo, dir, "plan"), { reviews: [], arbitration: null, legacy: [] });
+    fs.mkdirSync(path.join(repo, dir), { recursive: true });
+    for (const name of [captureName("HX-004", "plan", false), captureName("HX-021", "plan", true), captureName("HX-030", "implementation", false)]) {
+      fs.writeFileSync(path.join(repo, dir, name), "SPARTAN-VERDICT: APPROVED\n");
+    }
+    const plan = readHistory(repo, dir, "plan");
+    assert.deepEqual(plan.reviews, ["HX-004"]);
+    assert.equal(plan.arbitration, "HX-021");
+    assert.deepEqual(readHistory(repo, dir, "implementation").reviews, ["HX-030"]);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("parseArgs reads options and rejects unknown ones", () => {
