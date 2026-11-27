@@ -187,3 +187,70 @@ test("hasPendingPaste recognises a collapsed, unsent pasted prompt", async () =>
   assert.equal(hasPendingPaste(box("")), false);
   assert.equal(hasPendingPaste("no input box here"), false);
 });
+
+test("awaitStart watches the input box on every step, not once per grace period", async () => {
+  const { awaitStart, hasPendingPaste, STALL_GRACE_MS, STALL_POLL_MS, MAX_PASTE_SUBMITS } = await import("../src/adapters/herdr/adapter.mjs");
+  const box = (inner) => ` ${"▄".repeat(40)}\n${inner}\n ${"▀".repeat(40)}\n  Grok 4.6 High Fast   Run Everything`;
+
+  // The host dropped the Enter: the prompt sits in the box until Enter lands, and the agent
+  // starts on the step right after it.
+  let screen = box("  Open `spartan/tasks/0001-x.md` (handoff HX-009).\n\n  Return only the next handoff.");
+  let started = false;
+  const waits = [];
+  const pressed = [];
+  const ok = awaitStart({
+    graceMs: 60,
+    stepMs: 10,
+    waitStep: (ms) => {
+      waits.push(ms);
+      return started;
+    },
+    submit: (attempt) => {
+      if (!hasPendingPaste(screen)) return false;
+      pressed.push(attempt);
+      screen = box("  → Add a follow-up");
+      started = true;
+      return true;
+    },
+  });
+  assert.equal(ok, true);
+  assert.deepEqual(pressed, [1]);
+  assert.deepEqual(waits, [10]);
+
+  // An idle box is never touched, and the steps add up to the grace period, no more.
+  const steps = [];
+  assert.equal(
+    awaitStart({
+      graceMs: 25,
+      stepMs: 10,
+      waitStep: (ms) => {
+        steps.push(ms);
+        return false;
+      },
+      submit: () => false,
+    }),
+    false,
+  );
+  assert.deepEqual(steps, [10, 10, 5]);
+
+  // Enter is pressed at most maxSubmits times, however long the box stays full.
+  let presses = 0;
+  assert.equal(
+    awaitStart({
+      graceMs: 100,
+      stepMs: 10,
+      maxSubmits: 2,
+      waitStep: () => false,
+      submit: () => {
+        presses++;
+        return true;
+      },
+    }),
+    false,
+  );
+  assert.equal(presses, 2);
+
+  // The shipped schedule checks the box many times inside the grace period, and retries.
+  assert.ok(STALL_GRACE_MS / STALL_POLL_MS >= 10);
+  assert.ok(MAX_PASTE_SUBMITS > 1);
+});

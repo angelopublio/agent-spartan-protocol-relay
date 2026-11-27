@@ -20,6 +20,11 @@ const RESERVED_LABELS = new Set(["cockpit", "relay"]);
 // longer. After a stalled prompt the relay waits this long for the agent to start.
 export const STALL_GRACE_MS = 120_000;
 
+// Inside that grace period the relay re-reads the agent's input box this often, and presses
+// the missing Enter at most this many times.
+export const STALL_POLL_MS = 5_000;
+export const MAX_PASTE_SUBMITS = 3;
+
 // herdr can read a working agent as idle for a moment, for example while the host redraws
 // its footer. A finish counts only once the state holds this long.
 export const SETTLE_MS = 10_000;
@@ -193,9 +198,9 @@ export function hasPendingPaste(screen) {
   return !IDLE_INPUT_HINTS.test(content);
 }
 
-// Sends Enter once when the agent's input box still holds an unsent pasted prompt.
-function submitPendingPaste(agent) {
-  if (agent.pasteSubmitted) return false;
+// Presses Enter when the agent's input box still holds the unsent prompt. The prompt itself
+// is never sent again; only the Enter the host dropped is.
+function submitPendingPaste(agent, attempt) {
   let screen = "";
   try {
     screen = herdr(["agent", "read", agent.name, "--source", "recent", "--lines", "80"], { raw: true });
@@ -203,22 +208,41 @@ function submitPendingPaste(agent) {
     return false;
   }
   if (!hasPendingPaste(screen)) return false;
-  agent.pasteSubmitted = true;
   herdr(["agent", "send-keys", agent.name, "enter"]);
-  log(`…  ${agent.name} still held the prompt unsent in its input box; pressed Enter once`);
+  log(`…  ${agent.name} still held the prompt unsent in its input box; pressed Enter (${attempt} of ${MAX_PASTE_SUBMITS})`);
   return true;
+}
+
+// Waits for a stalled prompt to start, checking the input box on every step rather than once:
+// nothing happens while the dropped Enter is missing, and the box can take a moment to appear.
+// `waitStep(ms)` returns true once the agent starts; `submit(attempt)` presses Enter when the
+// box still holds the prompt, and returns whether it did.
+export function awaitStart({ waitStep, submit, graceMs = STALL_GRACE_MS, stepMs = STALL_POLL_MS, maxSubmits = MAX_PASTE_SUBMITS }) {
+  let submits = 0;
+  for (let left = graceMs; left > 0; ) {
+    if (submits < maxSubmits && submit(submits + 1)) submits++;
+    const step = Math.min(stepMs, left);
+    if (waitStep(step)) return true;
+    left -= step;
+  }
+  return false;
 }
 
 // True once the agent starts working (or asks for approval) within the grace period.
 function waitStarted(agent) {
-  log(`…  ${agent.name} has not started yet; waiting up to ${STALL_GRACE_MS / 1000} s`);
-  try {
-    herdr(["agent", "wait", agent.name, "--until", "working", "--until", "blocked", "--timeout", String(STALL_GRACE_MS)]);
-    return true;
-  } catch (e) {
-    if (e.code === "timeout") return false;
-    throw e;
-  }
+  log(`…  ${agent.name} has not started yet; waiting up to ${STALL_GRACE_MS / 1000} s and watching its input box`);
+  return awaitStart({
+    waitStep: (ms) => {
+      try {
+        herdr(["agent", "wait", agent.name, "--until", "working", "--until", "blocked", "--timeout", String(ms)]);
+        return true;
+      } catch (e) {
+        if (e.code === "timeout") return false;
+        throw e;
+      }
+    },
+    submit: (attempt) => submitPendingPaste(agent, attempt),
+  });
 }
 
 function settle(agent, timeoutMs, status) {
@@ -240,7 +264,6 @@ function runPrompt(agent, text, timeoutMs) {
   for (let attempt = 0; attempt < 2; attempt++) {
     let res;
     try {
-      agent.pasteSubmitted = false;
       res = herdr(["agent", "prompt", agent.name, text, "--wait", "--timeout", String(timeoutMs)]);
     } catch (e) {
       if (e.code === "agent_blocked" && attempt === 0) {
@@ -249,10 +272,9 @@ function runPrompt(agent, text, timeoutMs) {
       }
       if (e.code === "timeout") throw new Stop(`${agent.name} did not finish within ${timeoutMs / 60_000} min; its pane ${agent.pane} is left open`);
       if (e.code === "agent_prompt_stalled") {
-        // The prompt was delivered, so never send it again. Submit it if it is still sitting in
-        // the input box, then wait for the agent to start.
-        submitPendingPaste(agent);
-        if (!waitStarted(agent) && !(submitPendingPaste(agent) && waitStarted(agent))) throw new Stop(`${agent.name} never started working on the prompt within ${STALL_GRACE_MS / 1000} s (pane ${agent.pane}); check that "${text.split(/\s/)[0]}" is how this host invokes Spartan`);
+        // The prompt was delivered, so never send it again. Wait for the agent to start, and
+        // press Enter whenever the prompt is still sitting unsent in the input box.
+        if (!waitStarted(agent)) throw new Stop(`${agent.name} never started working on the prompt within ${STALL_GRACE_MS / 1000} s (pane ${agent.pane}); check that "${text.split(/\s/)[0]}" is how this host invokes Spartan`);
         res = herdr(["agent", "wait", agent.name, "--timeout", String(timeoutMs)]);
       } else {
         throw new Stop(`prompting ${agent.name} failed: ${e.message}`);
