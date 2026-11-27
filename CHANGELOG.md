@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/angelopublio/agent-spartan-protocol-relay/compare/v0.1.0...v0.1.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* close the relay's producer pane when the task completes ([de95932](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/de95932f524ae2f490ef900ce8b463cba4511029))
+* derive the review budget and arbitration from the captures on disk ([0f7c939](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/0f7c93917ad6a0581e2c01cc9299700f4487f4bb))
+* press Enter when any unsent prompt text sits in Cursor's input box ([#6](https://github.com/angelopublio/agent-spartan-protocol-relay/issues/6)) ([d59f8b4](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/d59f8b4bf0ae1a418a03fc816b5109710dd52399))
+* press the dropped Enter throughout the stall grace period ([c8c75e2](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/c8c75e240d628f0acb74dc20df1f970edcc6d3e2))
+* refuse a review capture that lost the round's response ([#10](https://github.com/angelopublio/agent-spartan-protocol-relay/issues/10)) ([ae40e5d](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/ae40e5d53dc1088b19d124efc46a5b27542cb4fb))
+* reuse a free agent pane instead of splitting one per round ([c76fc11](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/c76fc11d4322473902cb9a5f1e986a9b9867b9b7))
+
 ## [0.1.0](https://github.com/angelopublio/agent-spartan-protocol-relay/compare/v0.1.0...v0.1.0) (2026-11-26)
 
 

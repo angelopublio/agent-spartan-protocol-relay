@@ -1,6 +1,6 @@
 {
   "name": "agent-spartan-protocol-relay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Relay and cockpit for the Agent Spartan Protocol in terminal multiplexers: hands each Spartan handoff to the next bound agent and runs bounded review loops.",
   "type": "module",
   "license": "MIT",
