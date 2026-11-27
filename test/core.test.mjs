@@ -281,3 +281,16 @@ test("awaitStart watches the input box on every step, not once per grace period"
   assert.ok(STALL_GRACE_MS / STALL_POLL_MS >= 10);
   assert.ok(MAX_PASTE_SUBMITS > 1);
 });
+
+test("releasePolicy closes the relay's producer pane only on a completed task", async () => {
+  const { releasePolicy } = await import("../src/core/relay.mjs");
+  const producer = { name: "sp-0001-producer", pane: "w1:p5", host: "Cursor", owned: true };
+  assert.equal(releasePolicy({ completed: true, producer }).close, true);
+  assert.match(releasePolicy({ completed: true, producer }).reason, /pane w1:p5 is closed/);
+  assert.equal(releasePolicy({ completed: false, producer }).close, false);
+  assert.match(releasePolicy({ completed: false, producer }).reason, /stays open in pane w1:p5/);
+  const adopted = { ...producer, name: "sp-0001-owner", owned: false };
+  assert.equal(releasePolicy({ completed: true, producer: adopted }).close, false);
+  assert.match(releasePolicy({ completed: true, producer: adopted }).reason, /your Cursor session sp-0001-owner/);
+  assert.deepEqual(releasePolicy({ completed: true, producer: null }), { close: false, reason: null });
+});

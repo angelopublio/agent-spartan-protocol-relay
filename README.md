@@ -124,6 +124,8 @@ Every agent the relay starts opens in the relay's own tab, so one view shows the
 
 When no pane is free it splits the widest one, preferring panes not labelled `cockpit` or `relay`: side by side when both halves keep at least 60 columns, one above the other otherwise. Only when no pane qualifies does the agent open in a tab of its own, named `sp-NNNN`.
 
+A reviewer's pane is closed as soon as its round is captured, and the producer's pane when the task completes. Any other end leaves the producer open to be read, and a session you started yourself is never closed.
+
 ## Agent state detection
 
 The relay waits on herdr's reading of each agent's state. herdr reads some hosts, Cursor among them, from the bottom lines of their pane, so the relay guards against misreadings:
@@ -137,7 +139,7 @@ While Cursor waits on a background shell, it shows a `1 task` line under its inp
 
 ## When the relay stops
 
-The relay stops whenever a human decision is needed and leaves every pane open. Running the same command again continues from the task file.
+The relay stops whenever a human decision is needed and leaves every pane open, so you can read what happened. Running the same command again continues from the task file.
 
 | Message | What to do |
 | --- | --- |

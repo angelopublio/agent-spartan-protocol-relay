@@ -69,6 +69,16 @@ export function afterReview({ verdict, arbiter, reviewKind, cycle, maxCycles, ar
   return { toArbiter: Boolean(toArbiter), authorization, next };
 }
 
+// What happens to the producer's pane when a run ends. A completed task leaves nothing to
+// read, so the relay closes the pane it opened for it; any other end keeps the pane open for
+// the human, and a session the human started is never closed.
+export function releasePolicy({ completed, producer }) {
+  if (!producer) return { close: false, reason: null };
+  if (!producer.owned) return { close: false, reason: `your ${producer.host} session ${producer.name} stays open in pane ${producer.pane}` };
+  if (!completed) return { close: false, reason: `producer ${producer.name} stays open in pane ${producer.pane}` };
+  return { close: true, reason: `the task is complete, so producer ${producer.name}'s pane ${producer.pane} is closed` };
+}
+
 export function run(opts, adapter) {
   const taskPath = path.resolve(opts.task);
   if (!fs.existsSync(taskPath)) throw new Stop(`${opts.task} does not exist`);
@@ -113,6 +123,7 @@ export function run(opts, adapter) {
   nextAction(state.task); // validate before touching any pane
   state.producer = adapter.findProducer(state, opts.producer, { required: false });
 
+  let completed = false;
   try {
     for (;;) {
       state.task = readTask(taskPath);
@@ -125,6 +136,7 @@ export function run(opts, adapter) {
         const p = state.producer;
         if (p && (p.host !== host || p.role !== action.role || (p.model && wanted && p.model !== wanted))) {
           adapter.release(p);
+          if (!p.owned) log(`   your ${p.host} session ${p.name} is not the ${action.role} ${action.id} needs; it stays open in pane ${p.pane}`);
           state.producer = null;
         }
         if (!state.producer) {
@@ -182,7 +194,12 @@ export function run(opts, adapter) {
       const after = readTask(taskPath).meta;
       if (after.handoff_id !== action.id) throw new Stop(`the persist round did not adopt ${action.id} (handoff_id is ${after.handoff_id}); read pane ${state.producer.pane}`);
     }
+  } catch (e) {
+    completed = e instanceof Stop && e.ok;
+    throw e;
   } finally {
-    if (state.producer?.owned) log(`   producer ${state.producer.name} stays open in pane ${state.producer.pane}`);
+    const { close, reason } = releasePolicy({ completed, producer: state.producer });
+    if (close) adapter.release(state.producer);
+    if (reason) log(`   ${reason}`);
   }
 }
