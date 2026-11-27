@@ -1,6 +1,6 @@
 id = "spartan-relay"
 name = "Spartan Relay"
-version = "0.1.1"
+version = "0.1.2"
 min_herdr_version = "0.9.0"
 description = "Open a repository's cockpit and relay workspace, run the Agent Spartan Protocol relay on its active task, and install the Cursor detection fix."
 platforms = ["macos", "linux"]

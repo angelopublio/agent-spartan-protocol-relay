@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/angelopublio/agent-spartan-protocol-relay/compare/v0.1.1...v0.1.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* reject an unusable skill and keep a BLOCKED review out of the budget ([dea9c98](https://github.com/angelopublio/agent-spartan-protocol-relay/commit/dea9c9894e3ac97d2d282f03aa76a9dbef6693c6))
+
 ## [0.1.1](https://github.com/angelopublio/agent-spartan-protocol-relay/compare/v0.1.0...v0.1.1) (2026-11-27)
 
 
