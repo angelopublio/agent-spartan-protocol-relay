@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { doctor } from "./doctor.mjs";
 import {
-  AGENTS, MIN_HERDR, MIN_NODE_MAJOR, PROTOCOL_SLUG, REPO_SLUG, cursorOverride, herdrPlugin, herdrVersion, skillDirs, skillInstalled, versionAtLeast, which,
+  AGENTS, MIN_HERDR, MIN_NODE_MAJOR, PROTOCOL_SLUG, REPO_SLUG, cursorOverride, herdrPlugin, herdrVersion, skillDirs, skillPresent, versionAtLeast, which,
 } from "./environment.mjs";
 
 function ask(question, { yes }) {
@@ -65,8 +65,8 @@ export function setup(opts = {}) {
   const skillStep = (name, slug, what) => {
     step(`${what} (skill ${name})`);
     const dirs = skillDirs(agents);
-    const have = dirs.filter((d) => skillInstalled(d.dir, name));
-    const missing = dirs.filter((d) => !skillInstalled(d.dir, name));
+    const have = dirs.filter((d) => skillPresent(d.dir, name));
+    const missing = dirs.filter((d) => !skillPresent(d.dir, name));
     if (!missing.length) {
       process.stdout.write("  already installed for every agent found; left as it is\n");
       return;

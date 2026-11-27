@@ -37,7 +37,7 @@ What setup installs when it is missing, and never replaces when present:
 spartan-relay doctor
 ```
 
-Report every line marked `✖` with its suggested fix. Run `doctor` from inside a repository to also check that repository's `AGENTS.md` bindings and `.gitignore`.
+Report every line marked `✖` with its suggested fix. A skill line fails when `SKILL.md` is missing, when a file it references beside itself is missing, or when the same skill is installed more than once under that host's skill folder. Run `doctor` from inside a repository to also check that repository's `AGENTS.md` bindings and `.gitignore`.
 
 ## 4. Prepare a repository, if your user asks
 

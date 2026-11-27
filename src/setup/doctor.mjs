@@ -8,6 +8,46 @@ import {
   AGENTS, MIN_HERDR, MIN_NODE_MAJOR, PLUGIN_ID, cursorOverride, herdrPlugin, herdrVersion, output, skillDirs, skillInstalled, versionAtLeast, which,
 } from "./environment.mjs";
 
+const SKILL_HINTS = {
+  spartan: "run setup, or install the Agent Spartan Protocol skill",
+  "spartan-relay-cockpit": "run setup, or npx skills add angelopublio/agent-spartan-protocol-relay --skill spartan-relay-cockpit -g",
+};
+
+// One doctor row for a skill under a host's skill folder. A single usable installation passes.
+// A copy whose SKILL.md names files that are not beside it fails, and so does a second
+// installation of the same name: the row says which copy is incomplete.
+export function skillCheck(dir, name, hosts) {
+  const who = hosts.join(", ");
+  const report = skillInstalled(dir, name);
+  if (!report.installations.length) {
+    return { ok: false, label: `skill ${name} in ${dir} (${who})`, hint: SKILL_HINTS[name] || "run setup" };
+  }
+  if (report.installations.length === 1) {
+    const one = report.installations[0];
+    const where = one.dir === path.join(dir, name) ? dir : one.dir;
+    if (one.usable) return { ok: true, label: `skill ${name} in ${where} (${who})`, hint: "" };
+    return {
+      ok: false,
+      label: `skill ${name} in ${where} (${who}) is not usable`,
+      hint: `missing ${one.missing.join(", ")}; reinstall the skill so the files SKILL.md references are beside it`,
+    };
+  }
+  const parts = report.installations.map((install) =>
+    install.usable ? `${install.dir} is usable` : `${install.dir} is incomplete, missing ${install.missing.join(", ")}`,
+  );
+  const mixed = report.installations.some((install) => install.symlink) && report.installations.some((install) => !install.symlink);
+  const note = mixed ? " A search that does not follow symlinks finds a real directory and misses a symlinked one." : "";
+  const incomplete = report.installations.filter((install) => !install.usable);
+  const action = incomplete.length
+    ? ` Remove the incomplete installation${incomplete.length > 1 ? "s" : ""}.`
+    : " Keep a single installation.";
+  return {
+    ok: false,
+    label: `skill ${name} is installed ${report.installations.length} times under ${dir} (${who})`,
+    hint: `${parts.join("; ")}.${note}${action}`,
+  };
+}
+
 function repoRoot(cwd) {
   try {
     return execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -34,7 +74,8 @@ export function checks({ cwd = process.cwd() } = {}) {
   add(agents.length ? true : false, `Agent CLIs: ${agents.map((a) => a.host).join(", ") || "none found"}`, "install at least one of claude, codex, cursor-agent, grok");
   for (const { dir, hosts } of skillDirs(agents)) {
     for (const skill of ["spartan", "spartan-relay-cockpit"]) {
-      add(skillInstalled(dir, skill), `skill ${skill} in ${dir} (${hosts.join(", ")})`, skill === "spartan" ? "run setup, or install the Agent Spartan Protocol skill" : "run setup, or npx skills add angelopublio/agent-spartan-protocol-relay --skill spartan-relay-cockpit -g");
+      const skillRow = skillCheck(dir, skill, hosts);
+      add(skillRow.ok, skillRow.label, skillRow.hint);
     }
   }
   if (agents.some((a) => a.host === "Cursor")) {

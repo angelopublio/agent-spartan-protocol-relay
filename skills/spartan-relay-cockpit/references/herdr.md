@@ -2,6 +2,8 @@
 
 The commands below are herdr CLI calls the cockpit runs through its shell. Every call prints JSON; read `result`.
 
+Every herdr `--timeout` is in milliseconds.
+
 ## Layout
 
 One workspace per repository, with two panes the human keeps:
@@ -44,6 +46,8 @@ herdr pane wait-output <relay-pane> --regex '(RELAYNNNN-<run>-EXIT-[0-9]+|⏸)' 
 herdr pane read <relay-pane> --source recent-unwrapped --lines 300
 ```
 
+The relay wait omits `--timeout`. Without a timeout, `herdr pane wait-output` blocks until the regex matches, and the relay bounds each round.
+
 Use a fresh sentinel each run: an old one stays in the scrollback and would match at once. Run the wait in the background so the cockpit stays responsive.
 
 Stop a running relay with `herdr pane send-keys <relay-pane> C-c`. Rerunning the same command resumes from the task file.
@@ -54,7 +58,7 @@ Stop a running relay with `herdr pane send-keys <relay-pane> C-c`. Rerunning the
 herdr agent list
 herdr agent get <name>        # agent_status: working, idle, done, blocked
 herdr agent explain <name>    # which detection rule matched, and why
-herdr agent wait <name> --until done --until idle --until blocked --timeout <ms>
+herdr agent wait <name> --until done --until idle --until blocked --timeout <milliseconds>
 ```
 
 herdr reads some hosts, Cursor among them, from the bottom lines of their pane, so a status can flicker. Before acting on `idle` or `done`, check it again after about 15 seconds, and trust the task file over the status.

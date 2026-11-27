@@ -29,6 +29,17 @@ export function lostCaptureName(id, reviewKind, arbiter) {
   return captureName(id, reviewKind, arbiter).replace(/\.txt$/, ".not-captured.txt");
 }
 
+// Where the relay keeps a round that returned BLOCKED. A BLOCKED verdict stops the phase
+// for the human and is not a review of the work, so counting it spends a cycle on the
+// blocker they then clear. The name sits outside both patterns above, the same convention
+// as a read that brought no response back. The budget stays a reading of capture names:
+// opening each capture to skip a verdict would make the count depend on file contents,
+// which a restart and a hand edit both have to reproduce. Renaming this file to the
+// ordinary capture name is how that round comes to count.
+export function blockedCaptureName(id, reviewKind, arbiter) {
+  return captureName(id, reviewKind, arbiter).replace(/\.txt$/, ".blocked-on-host.txt");
+}
+
 const idValue = (id) => Number(id.slice(3));
 const byId = (a, b) => idValue(a) - idValue(b);
 

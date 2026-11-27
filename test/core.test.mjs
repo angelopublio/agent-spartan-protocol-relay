@@ -7,8 +7,8 @@ import { Stop } from "../src/core/errors.mjs";
 import { DEFAULT_HOSTS, resolveHost, hostForKind, withToken } from "../src/core/hosts.mjs";
 import { parseBindings, bindingFor, modelArgs } from "../src/core/bindings.mjs";
 import { parseTask, nextAction, lastVerdict, captureBodyLines, capturedTheResponse, MIN_CAPTURE_BODY_LINES } from "../src/core/task.mjs";
-import { afterReview, persistPrompt } from "../src/core/relay.mjs";
-import { reviewHistory, reviewCycle, readHistory, captureName, lostCaptureName } from "../src/core/history.mjs";
+import { afterReview, persistPrompt, blockedStop } from "../src/core/relay.mjs";
+import { reviewHistory, reviewCycle, readHistory, captureName, lostCaptureName, blockedCaptureName } from "../src/core/history.mjs";
 import { parseArgs } from "../src/cli.mjs";
 import { choosePaneSplit, MIN_AGENT_COLS } from "../src/adapters/herdr/adapter.mjs";
 
@@ -185,6 +185,28 @@ test("a lost capture is kept for the human and spends no review cycle", () => {
   assert.equal(reviewCycle(history, { reviewKind: "implementation", id: "HX-015", maxCycles: 3, dir: ".spartan-relay/0002" }), 1);
 });
 
+test("a BLOCKED round is kept for the human and spends no review cycle", () => {
+  const blocked = blockedCaptureName("HX-018", "plan", false);
+  assert.equal(blocked, "HX-018-plan-review.blocked-on-host.txt");
+  assert.equal(blockedCaptureName("HX-031", "plan", true), "HX-031-plan-arbitration.blocked-on-host.txt");
+  const names = ["HX-014-plan-review.txt", "HX-016-plan-review.txt", blocked, blockedCaptureName("HX-031", "plan", true)];
+  const history = reviewHistory(names, "plan");
+  assert.deepEqual(history.reviews, ["HX-014", "HX-016"]);
+  assert.equal(history.arbitration, null);
+  assert.deepEqual(history.legacy, []);
+  // The next review of the phase is still 3 of 3: the BLOCKED round took no cycle.
+  assert.equal(reviewCycle(history, { reviewKind: "plan", id: "HX-019", maxCycles: 3, dir: ".spartan-relay/0007" }), 3);
+  // The same handoff, run again because its persist did not adopt, is that same next cycle.
+  assert.equal(reviewCycle(history, { reviewKind: "plan", id: "HX-018", maxCycles: 3, dir: ".spartan-relay/0007" }), 3);
+  // A BLOCKED arbitration is not the phase's arbitration, so the phase can be ruled again.
+  assert.equal(reviewCycle(history, { reviewKind: "plan", id: "HX-032", maxCycles: 3, arbiter: true, dir: ".spartan-relay/0007" }), 2);
+  const stop = blockedStop({ id: "HX-018", reviewKind: "plan", capture: ".spartan-relay/0007/HX-018-plan-review.blocked-on-host.txt" });
+  assert.equal(
+    stop,
+    "HX-018 returned BLOCKED, which stops the plan phase for you and is not a review of the work. It was not counted against the phase; the round is in .spartan-relay/0007/HX-018-plan-review.blocked-on-host.txt. Clear the blocker, then continue the task: the plan phase still has the budget this round found.",
+  );
+});
+
 test("afterReview routes to the arbiter at the cycle limit", () => {
   const r = afterReview({ verdict: "CHANGES_REQUESTED", arbiter: false, reviewKind: "plan", cycle: 3, maxCycles: 3, arbiterBound: true });
   assert.equal(r.toArbiter, true);
@@ -194,6 +216,9 @@ test("afterReview routes to the arbiter at the cycle limit", () => {
   assert.equal(early.authorization, "persist and correct");
   const ruling = afterReview({ verdict: "CHANGES_REQUESTED", arbiter: true, reviewKind: "plan", cycle: 3, maxCycles: 3, arbiterBound: true });
   assert.match(ruling.next, /one required change/);
+  const blocked = afterReview({ verdict: "BLOCKED", arbiter: false, reviewKind: "plan", cycle: 3, maxCycles: 3, arbiterBound: true });
+  assert.equal(blocked.toArbiter, false);
+  assert.equal(blocked.authorization, "persist only");
 });
 
 test("persistPrompt names the handoff and the capture", () => {

@@ -1,3 +1,4 @@
 node_modules/
 .spartan-relay/
 .DS_Store
+.idea/

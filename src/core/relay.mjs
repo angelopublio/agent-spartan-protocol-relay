@@ -6,7 +6,7 @@ import { Stop, log } from "./errors.mjs";
 import { loadHosts, resolveHost, withToken, CONFIG_NAME } from "./hosts.mjs";
 import { readBindings, bindingFor, modelArgs } from "./bindings.mjs";
 import { readTask, nextAction, lastVerdict, captureBodyLines, capturedTheResponse } from "./task.mjs";
-import { readHistory, reviewCycle, captureName, lostCaptureName } from "./history.mjs";
+import { readHistory, reviewCycle, captureName, lostCaptureName, blockedCaptureName } from "./history.mjs";
 
 // Tripwire: a read-only reviewer must leave the working tree untouched.
 function treeFingerprint(repo) {
@@ -38,6 +38,13 @@ export const CAPTURES = `.${CONFIG_NAME}`;
 export function captureDir(repo) {
   if (!isIgnored(repo, CAPTURES)) throw new Stop(`add ${CAPTURES}/ to .gitignore first; review captures must not enter the tree the reviewer is checked against`);
   return CAPTURES;
+}
+
+// What the relay prints when a read-only round returns BLOCKED. The capture was written
+// under a name the budget ignores, and the producer was asked to persist the verdict, which
+// is what stops the phase for the human. The cycle is not spent.
+export function blockedStop({ id, reviewKind, capture }) {
+  return `${id} returned BLOCKED, which stops the ${reviewKind} phase for you and is not a review of the work. It was not counted against the phase; the round is in ${capture}. Clear the blocker, then continue the task: the ${reviewKind} phase still has the budget this round found.`;
 }
 
 export function persistPrompt({ rel, action, verdict, capture, authorization, next, arbiter }) {
@@ -209,9 +216,13 @@ export function run(opts, adapter) {
       }
       const verdict = lastVerdict(output);
       if (!verdict) throw new Stop(`no SPARTAN-VERDICT line found in ${reviewer.name}'s output; read pane ${reviewer.pane}`);
-      const capture = write(captureName(action.id, action.reviewKind, arbiter));
+      // BLOCKED stops the phase for the human and reviews none of the work. The capture is
+      // kept under a name the budget ignores, as a lost read is, so the counter stays a
+      // reader of names. The producer still persists the verdict: that is what stops the task.
+      const blocked = verdict === "BLOCKED";
+      const capture = write(blocked ? blockedCaptureName(action.id, action.reviewKind, arbiter) : captureName(action.id, action.reviewKind, arbiter));
       adapter.release(reviewer);
-      log(`←  ${verdict} (captured in ${capture})`);
+      log(blocked ? `←  BLOCKED (kept in ${capture}; not counted against the ${action.reviewKind} phase)` : `←  ${verdict} (captured in ${capture})`);
 
       const { authorization, next } = afterReview({
         verdict,
@@ -225,6 +236,7 @@ export function run(opts, adapter) {
       adapter.runPrompt(state.producer, withToken(hosts, state.producer.host, persistPrompt({ rel, action, verdict, capture, authorization, next, arbiter })), opts.producerTimeoutMs);
       const after = readTask(taskPath).meta;
       if (after.handoff_id !== action.id) throw new Stop(`the persist round did not adopt ${action.id} (handoff_id is ${after.handoff_id}); read pane ${state.producer.pane}`);
+      if (blocked) throw new Stop(blockedStop({ id: action.id, reviewKind: action.reviewKind, capture }));
     }
   } catch (e) {
     completed = e instanceof Stop && e.ok;
