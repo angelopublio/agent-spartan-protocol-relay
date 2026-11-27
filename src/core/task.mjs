@@ -78,3 +78,30 @@ export function nextAction(task) {
 export function lastVerdict(output) {
   return [...output.matchAll(VERDICT_RE)].at(-1)?.[1] || null;
 }
+
+// A reviewer's answer is read off its pane, and that read can come back holding the host's
+// collapsed rendering instead of the round's transcript: the echoed prompt, the verdict line
+// and the host's footer, and nothing of the response. herdr reads a host that draws on the
+// alternate screen out of application-owned history rather than scrollback, and that recovery
+// is best-effort, so the loss is silent. Such a capture must not be taken for a result: the
+// verdict it carries has no findings behind it, and the captures are the review budget, so
+// counting it spends a cycle on a round that reported nothing.
+//
+// What separates the two is volume, not wording; the relay never judges findings. In captures
+// from real runs the lost ones held a single non-empty line before the verdict, and the
+// thinnest genuine one held ten.
+export const MIN_CAPTURE_BODY_LINES = 5;
+
+// How much the capture holds before its verdict line: the reviewer's response, plus whatever
+// the host echoed of the prompt. Counted in non-empty lines, because a host pads with blanks.
+// Without a verdict line the whole capture is the body, so a read that returned nothing at all
+// is as recognisable as one that returned only a verdict.
+export function captureBodyLines(output) {
+  const verdict = [...output.matchAll(VERDICT_RE)].at(-1);
+  const before = verdict ? output.slice(0, verdict.index) : output;
+  return before.split("\n").filter((line) => line.trim()).length;
+}
+
+export function capturedTheResponse(output) {
+  return captureBodyLines(output) >= MIN_CAPTURE_BODY_LINES;
+}

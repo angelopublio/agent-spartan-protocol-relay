@@ -21,6 +21,14 @@ export function captureName(id, reviewKind, arbiter) {
   return `${id}-${reviewKind}-${arbiter ? "arbitration" : "review"}.txt`;
 }
 
+// Where the relay keeps a read that did not bring the round's response back. It is written for
+// the human to read, not as the round's record, so the name is deliberately outside both
+// patterns above: the review budget and the arbitration record never see it, and the round it
+// belongs to can be run again.
+export function lostCaptureName(id, reviewKind, arbiter) {
+  return captureName(id, reviewKind, arbiter).replace(/\.txt$/, ".not-captured.txt");
+}
+
 const idValue = (id) => Number(id.slice(3));
 const byId = (a, b) => idValue(a) - idValue(b);
 

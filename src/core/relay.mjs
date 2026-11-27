@@ -5,8 +5,8 @@ import path from "node:path";
 import { Stop, log } from "./errors.mjs";
 import { loadHosts, resolveHost, withToken, CONFIG_NAME } from "./hosts.mjs";
 import { readBindings, bindingFor, modelArgs } from "./bindings.mjs";
-import { readTask, nextAction, lastVerdict } from "./task.mjs";
-import { readHistory, reviewCycle, captureName } from "./history.mjs";
+import { readTask, nextAction, lastVerdict, captureBodyLines, capturedTheResponse } from "./task.mjs";
+import { readHistory, reviewCycle, captureName, lostCaptureName } from "./history.mjs";
 
 // Tripwire: a read-only reviewer must leave the working tree untouched.
 function treeFingerprint(repo) {
@@ -191,11 +191,25 @@ export function run(opts, adapter) {
       );
       const output = adapter.readOutput(reviewer);
       if (treeFingerprint(repo) !== before) throw new Stop(`the read-only ${action.role} changed the working tree; inspect pane ${reviewer.pane} and git status`);
+      const write = (name) => {
+        const to = path.join(taskCaptures, name);
+        fs.mkdirSync(path.join(repo, path.dirname(to)), { recursive: true });
+        fs.writeFileSync(path.join(repo, to), output);
+        return to;
+      };
+      // The capture is the round's result and its place in the review budget, so a read that
+      // did not bring the response back is a failed capture, not a result. It is kept under a
+      // name the budget ignores and the round is left to be run again, because handing the
+      // producer a verdict with no findings behind it spends a cycle and corrects nothing.
+      if (!capturedTheResponse(output)) {
+        const lost = write(lostCaptureName(action.id, action.reviewKind, arbiter));
+        throw new Stop(
+          `${reviewer.name} worked, but the read of its pane holds ${captureBodyLines(output)} non-empty line(s) before the verdict: it returned ${host}'s collapsed pane, not the ${action.role} round's response. ${action.id} was not captured and did not count against the ${action.reviewKind} phase; what was read is in ${lost}. The response is still on pane ${reviewer.pane}: read it there, then run the same command again to review ${action.id} once more.`,
+        );
+      }
       const verdict = lastVerdict(output);
       if (!verdict) throw new Stop(`no SPARTAN-VERDICT line found in ${reviewer.name}'s output; read pane ${reviewer.pane}`);
-      const capture = path.join(taskCaptures, captureName(action.id, action.reviewKind, arbiter));
-      fs.mkdirSync(path.join(repo, path.dirname(capture)), { recursive: true });
-      fs.writeFileSync(path.join(repo, capture), output);
+      const capture = write(captureName(action.id, action.reviewKind, arbiter));
       adapter.release(reviewer);
       log(`←  ${verdict} (captured in ${capture})`);
 
