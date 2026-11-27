@@ -120,7 +120,9 @@ The `spartan-relay-cockpit` skill turns an agent session in the `cockpit` pane i
 
 ## Panes
 
-Every agent the relay starts opens in the relay's own tab, so one view shows them all. The relay splits the widest pane, preferring panes not labelled `cockpit` or `relay`: side by side when both halves keep at least 60 columns, one above the other otherwise. Only when no pane qualifies does the agent open in a tab of its own, named `sp-NNNN`.
+Every agent the relay starts opens in the relay's own tab, so one view shows them all, and the tab does not gain a pane per round: before splitting, the relay looks for a pane it opened earlier for the same host and left free — labelled `sp-<host>`, no agent running in it any more, still in the repository, its shell back at its prompt — and starts the next agent there. Reuse is per host because a pane keeps the environment it was created with.
+
+When no pane is free it splits the widest one, preferring panes not labelled `cockpit` or `relay`: side by side when both halves keep at least 60 columns, one above the other otherwise. Only when no pane qualifies does the agent open in a tab of its own, named `sp-NNNN`.
 
 ## Agent state detection
 
