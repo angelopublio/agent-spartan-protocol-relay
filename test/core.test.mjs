@@ -6,9 +6,9 @@ import path from "node:path";
 import { Stop } from "../src/core/errors.mjs";
 import { DEFAULT_HOSTS, resolveHost, hostForKind, withToken } from "../src/core/hosts.mjs";
 import { parseBindings, bindingFor, modelArgs } from "../src/core/bindings.mjs";
-import { parseTask, nextAction, lastVerdict } from "../src/core/task.mjs";
+import { parseTask, nextAction, lastVerdict, captureBodyLines, capturedTheResponse, MIN_CAPTURE_BODY_LINES } from "../src/core/task.mjs";
 import { afterReview, persistPrompt } from "../src/core/relay.mjs";
-import { reviewHistory, reviewCycle, readHistory, captureName } from "../src/core/history.mjs";
+import { reviewHistory, reviewCycle, readHistory, captureName, lostCaptureName } from "../src/core/history.mjs";
 import { parseArgs } from "../src/cli.mjs";
 import { choosePaneSplit, MIN_AGENT_COLS } from "../src/adapters/herdr/adapter.mjs";
 
@@ -117,6 +117,72 @@ test("nextAction stops on completion, human-operator and disagreements", () => {
 test("lastVerdict takes the final verdict line", () => {
   assert.equal(lastVerdict("SPARTAN-VERDICT: APPROVED\nlater\nSPARTAN-VERDICT: CHANGES_REQUESTED"), "CHANGES_REQUESTED");
   assert.equal(lastVerdict("no verdict"), null);
+});
+
+// The shape a lost capture has: the host's collapsed pane, holding the echoed prompt, the
+// verdict and the footer, and nothing the reviewer said. Measured from two production rounds
+// whose reviewers worked 30 and 51 seconds.
+const COLLAPSED_PANE = [
+  "\u203a $spartan Open `spartan/tasks/0002-example.md` (handoff HX-015). Act as rev\u2026",
+  "  SPARTAN-VERDICT: CHANGES_REQUESTED",
+  "",
+  "  Worked for 51s \u2022 07:48",
+  "",
+  "",
+  "\u203a Ask Codex to do anything",
+  "",
+  "  Example Model high \u00b7 ~/src/example-project \u00b7 Review the implementation\u2026",
+  "  \u2190 for agents \u00b7 ? for shortcuts                             \u26a0 1 warning \u00b7 f2 to view",
+].join("\n");
+
+// The thinnest capture a real round produced that did carry its result: ten non-empty lines
+// before the verdict. Every one of them is elided with an ellipsis, the way a host shortens a
+// path it cannot fit, so the test also pins that an ellipsis is not evidence of a lost capture.
+const THIN_RESULT = [
+  "  Reviewed the implementation against the plan.",
+  "",
+  "  - Scope: the three files the plan names, read in ~/src/\u2026/example-project.",
+  "  - Finding: the guard added in src/\u2026/input.mjs rejects an empty value.",
+  "  - Finding: the test added covers the empty value but not the missing one.",
+  "  - Evidence: ran the suite read-only; see ~/src/\u2026/example-project output.",
+  "  - Evidence: git status --porcelain is empty.",
+  "  - Host: Example Host, model example-model, effort high, vendor Example.",
+  "  - Read only; no file was created, changed or deleted.",
+  "  - One change is required before this phase advances.",
+  "  - No further review of this phase is opened by this round.",
+  "",
+  "  SPARTAN-VERDICT: CHANGES_REQUESTED",
+  "",
+  "  Worked for 4m 12s \u2022 08:15",
+].join("\n");
+
+test("captureBodyLines measures what the capture holds before its verdict", () => {
+  assert.equal(captureBodyLines("a\n\n b \nSPARTAN-VERDICT: APPROVED\nfooter"), 2);
+  assert.equal(captureBodyLines("SPARTAN-VERDICT: APPROVED\nSPARTAN-VERDICT: BLOCKED"), 1);
+  assert.equal(captureBodyLines("one\ntwo\nthree"), 3); // no verdict line: the whole read is the body
+  assert.equal(captureBodyLines(""), 0);
+});
+
+test("capturedTheResponse rejects a collapsed pane and keeps the thinnest real result", () => {
+  assert.equal(captureBodyLines(COLLAPSED_PANE), 1);
+  assert.equal(capturedTheResponse(COLLAPSED_PANE), false);
+  assert.equal(lastVerdict(COLLAPSED_PANE), "CHANGES_REQUESTED"); // a verdict alone is not a result
+  assert.equal(captureBodyLines(THIN_RESULT), 10);
+  assert.equal(capturedTheResponse(THIN_RESULT), true);
+  assert.ok(captureBodyLines(COLLAPSED_PANE) < MIN_CAPTURE_BODY_LINES && MIN_CAPTURE_BODY_LINES < captureBodyLines(THIN_RESULT));
+  assert.equal(capturedTheResponse(""), false); // a read that brought nothing back at all
+});
+
+test("a lost capture is kept for the human and spends no review cycle", () => {
+  const lost = lostCaptureName("HX-015", "implementation", false);
+  assert.equal(lost, "HX-015-implementation-review.not-captured.txt");
+  assert.equal(lostCaptureName("HX-019", "plan", true), "HX-019-plan-arbitration.not-captured.txt");
+  const history = reviewHistory([lost, lostCaptureName("HX-019", "plan", true)], "implementation");
+  assert.deepEqual(history.reviews, []);
+  assert.equal(history.arbitration, null);
+  assert.deepEqual(history.legacy, []);
+  // So the refused round is still review 1 of 3, and an arbitrated phase stays open.
+  assert.equal(reviewCycle(history, { reviewKind: "implementation", id: "HX-015", maxCycles: 3, dir: ".spartan-relay/0002" }), 1);
 });
 
 test("afterReview routes to the arbiter at the cycle limit", () => {

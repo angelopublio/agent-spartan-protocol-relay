@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { Stop, log } from "../../core/errors.mjs";
 import { hostForKind } from "../../core/hosts.mjs";
 import { modelArgs } from "../../core/bindings.mjs";
+import { captureBodyLines, capturedTheResponse } from "../../core/task.mjs";
 
 export const NAME_PREFIX = "sp";
 
@@ -345,8 +346,21 @@ function runPrompt(agent, text, timeoutMs) {
   }
 }
 
+// A host that draws on the alternate screen keeps its transcript out of the pane's scrollback,
+// so herdr recovers it from the host's own history. That recovery is best-effort and can return
+// the host's collapsed pane instead, holding the verdict but none of the round's response. The
+// relay refuses such a read, so try once more before it does: a second read costs a second and
+// has the whole response whenever the first one raced the host's redraw.
+const READ_RETRY_MS = 2_000;
+
 function readOutput(agent) {
-  return herdr(["agent", "read", agent.name, "--source", "recent-unwrapped", "--lines", "4000"], { raw: true });
+  const read = () => herdr(["agent", "read", agent.name, "--source", "recent-unwrapped", "--lines", "4000"], { raw: true });
+  const first = read();
+  if (capturedTheResponse(first)) return first;
+  log(`…  ${agent.name}'s output came back without the round's response; reading its pane again`);
+  sleep(READ_RETRY_MS);
+  const second = read();
+  return captureBodyLines(second) > captureBodyLines(first) ? second : first;
 }
 
 // Finds the live producer session to continue with, in this order: --producer, the relay's
