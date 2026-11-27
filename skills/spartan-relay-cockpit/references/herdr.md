@@ -9,18 +9,32 @@ One workspace per repository, with two panes the human keeps:
 - `cockpit`: this session.
 - `relay`: a plain shell where `spartan-relay` runs. The human also runs credential commands there.
 
-`spartan-relay workspace`, run from the repository, focuses this workspace or recreates it with both panes; nothing about the workspace is stored in the repository. The relay opens agent panes in the same tab, at least 60 columns wide, and never splits panes labelled `cockpit` or `relay` while another pane fits.
+`spartan-relay workspace`, run from the repository, focuses this workspace or recreates it with both panes; nothing about the workspace is stored in the repository. The relay opens agent panes in the same tab, at least 60 columns wide, and never splits panes labelled `cockpit` or `relay` while another pane fits. It labels each one `sp-<host>` and reuses a pane of that label whose agent has gone and whose shell is back at its prompt, so rounds do not add panes. Leave those panes alone: closing one only makes the next round split a new one.
 
 ## Starting the planner
 
+The workspace keeps one `planner` pane across every task. Reuse it; split a new pane only when the workspace has none.
+
 ```sh
-P=$(herdr pane split <relay-pane> --direction right --ratio 0.6 --cwd <repo> --no-focus | jq -r .result.pane.pane_id)
-herdr pane rename "$P" planner
+P=$(herdr pane list | jq -r --arg w "$HERDR_WORKSPACE_ID" \
+  '.result.panes[] | select(.workspace_id == $w and .label == "planner") | .pane_id' | head -1)
+if [ -z "$P" ]; then
+  P=$(herdr pane split <relay-pane> --direction right --ratio 0.6 --cwd <repo> --no-focus | jq -r .result.pane.pane_id)
+  herdr pane rename "$P" planner
+fi
 herdr agent start sp-NNNN-owner --kind claude --pane "$P" --timeout 60000 -- --model <model> --effort <effort>
-herdr agent prompt sp-NNNN-owner "/spartan Act as planner. Create spartan/tasks/NNNN-slug.md …"
+herdr agent prompt sp-NNNN-owner "/spartan Act as planner. Create spartan/tasks/NNNN-slug.md ..."
 ```
 
 Name it `sp-NNNN-owner`: the relay adopts that session as the task's producer.
+
+`herdr agent start` refuses a pane that is not at its interactive shell prompt, so a reused pane needs the previous task's agent ended first:
+
+```sh
+herdr pane send-keys <planner-pane> "/exit" Enter
+```
+
+Clearing the previous agent's context is not enough. The relay adopts a producer by session name, so the pane must carry a session named for the new task, not an emptied session named for the old one. A reused pane still satisfies the fresh-execution-context rule: the session is new, only the pane is not.
 
 ## Running and watching the relay
 
@@ -49,4 +63,6 @@ Cursor shows a `1 task` line while it waits on a background shell, which pushes 
 
 ## Closing a task
 
-Close the agent panes of a finished task (`herdr pane close <pane>`), keeping `cockpit` and `relay`. The relay closes reviewers itself and leaves producers open.
+Close the agent panes of a finished task (`herdr pane close <pane>`), keeping `cockpit`, `relay`, and the `planner` pane the next task reuses. The relay closes reviewers itself and leaves producers open.
+
+When the host denies `herdr pane close`, report it and reuse panes rather than letting one accumulate per task. An allow rule for that command belongs in the cockpit's own permission settings, not in a repository's task.

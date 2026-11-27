@@ -97,31 +97,89 @@ export function choosePaneSplit(panes, reserved = new Set()) {
   return splitOf(panes.filter((p) => !reserved.has(p.pane_id))) || splitOf(panes);
 }
 
-function agentPane(state, env) {
+// The relay labels every pane it opens for an agent with the host that pane was opened for,
+// so a later round reuses the pane instead of splitting another one. The host is part of the
+// label because a pane keeps the environment of the host it was created with.
+export function agentLabel(host) {
+  return `${NAME_PREFIX}-${host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+}
+
+// herdr starts an agent only in a pane that is at its interactive shell prompt, where the
+// shell is the only foreground process.
+export function atShellPrompt(info) {
+  const fg = info?.foreground_processes || [];
+  return fg.length > 0 && fg.every((p) => p.pid === info.shell_pid);
+}
+
+// Where the next agent goes: the widest pane this relay already opened for the same host and
+// that is free again, or else a split. Reuse keeps one pane per host in the tab instead of
+// one more pane per round.
+export function chooseAgentPane(panes, { reserved = new Set(), reusable = () => false } = {}) {
+  const free = panes
+    .filter((p) => !reserved.has(p.pane_id) && p.rect.width >= MIN_AGENT_COLS && p.rect.height >= MIN_AGENT_ROWS && reusable(p))
+    .sort((x, y) => y.rect.width - x.rect.width || y.rect.height - x.rect.height)[0];
+  if (free) return { reuse: free.pane_id };
+  const split = choosePaneSplit(panes, reserved);
+  return split ? { split } : null;
+}
+
+function agentPane(state, host, env) {
+  const label = agentLabel(host);
+  const listed = herdr(["pane", "list"])?.result?.panes || [];
+  const byId = new Map(listed.map((p) => [p.pane_id, p]));
+  const busy = new Set(liveAgents().map((a) => a.pane_id));
+  const atPrompt = (id) => {
+    try {
+      return atShellPrompt(herdr(["pane", "process-info", "--pane", id])?.result?.process_info);
+    } catch {
+      return false;
+    }
+  };
+  // A pane is free when this relay opened it for the same host, no agent runs in it any more,
+  // it still sits in the repository, and its shell is back at its prompt.
+  const reusable = (p) => Boolean(p) && (p.label || "").toLowerCase() === label && !busy.has(p.pane_id) && p.cwd === state.repo && atPrompt(p.pane_id);
+  const opened = (pane) => {
+    if (pane) {
+      try {
+        herdr(["pane", "rename", pane, label]);
+      } catch {
+        /* the label only helps the next round find this pane */
+      }
+    }
+    return pane;
+  };
   const here = process.env.HERDR_PANE_ID;
   if (here) {
     const panes = herdr(["pane", "layout", "--pane", here])?.result?.layout?.panes || [];
-    const labels = new Map((herdr(["pane", "list"])?.result?.panes || []).map((p) => [p.pane_id, (p.label || "").toLowerCase()]));
-    const reserved = new Set(panes.map((p) => p.pane_id).filter((id) => RESERVED_LABELS.has(labels.get(id)) || id === here));
-    const split = choosePaneSplit(panes, reserved);
-    if (split) {
-      const pane = herdr(["pane", "split", split.pane, "--direction", split.direction, "--cwd", state.repo, "--no-focus", ...env])?.result?.pane?.pane_id;
+    const reserved = new Set(panes.map((p) => p.pane_id).filter((id) => RESERVED_LABELS.has((byId.get(id)?.label || "").toLowerCase()) || id === here));
+    const choice = chooseAgentPane(panes, { reserved, reusable: (p) => reusable(byId.get(p.pane_id)) });
+    if (choice?.reuse) {
+      log(`   reusing pane ${choice.reuse}, left free by an earlier ${host} round`);
+      return choice.reuse;
+    }
+    if (choice?.split) {
+      const pane = opened(herdr(["pane", "split", choice.split.pane, "--direction", choice.split.direction, "--cwd", state.repo, "--no-focus", ...env])?.result?.pane?.pane_id);
       if (pane) return pane;
     }
   }
   const ws = process.env.HERDR_WORKSPACE_ID;
-  const label = `${NAME_PREFIX}-${state.taskNo}`;
-  const tab = (herdr(["tab", "list", ...(ws ? ["--workspace", ws] : [])])?.result?.tabs || []).find((t) => t.label === label);
+  const tabLabel = `${NAME_PREFIX}-${state.taskNo}`;
+  const tab = (herdr(["tab", "list", ...(ws ? ["--workspace", ws] : [])])?.result?.tabs || []).find((t) => t.label === tabLabel);
   let pane;
   if (tab) {
-    const inTab = (herdr(["pane", "list"])?.result?.panes || []).filter((p) => p.tab_id === tab.tab_id);
-    if (!inTab.length) throw new Stop(`tab ${label} has no pane to split`);
-    pane = herdr(["pane", "split", inTab[inTab.length - 1].pane_id, "--direction", "down", "--cwd", state.repo, "--no-focus", ...env])?.result?.pane?.pane_id;
+    const inTab = listed.filter((p) => p.tab_id === tab.tab_id);
+    if (!inTab.length) throw new Stop(`tab ${tabLabel} has no pane to split`);
+    const free = inTab.find(reusable);
+    if (free) {
+      log(`   reusing pane ${free.pane_id} in tab ${tabLabel}, left free by an earlier ${host} round`);
+      return free.pane_id;
+    }
+    pane = opened(herdr(["pane", "split", inTab[inTab.length - 1].pane_id, "--direction", "down", "--cwd", state.repo, "--no-focus", ...env])?.result?.pane?.pane_id);
   } else {
-    pane = herdr(["tab", "create", ...(ws ? ["--workspace", ws] : []), "--label", label, "--cwd", state.repo, "--no-focus", ...env])?.result?.root_pane?.pane_id;
+    pane = opened(herdr(["tab", "create", ...(ws ? ["--workspace", ws] : []), "--label", tabLabel, "--cwd", state.repo, "--no-focus", ...env])?.result?.root_pane?.pane_id);
   }
-  if (!pane) throw new Stop(`could not open a pane for the agent in tab ${label}`);
-  log(`   no free pane in this tab is ${MIN_AGENT_COLS} columns wide, so the agent opens in tab ${label}`);
+  if (!pane) throw new Stop(`could not open a pane for the agent in tab ${tabLabel}`);
+  log(`   no free pane in this tab is ${MIN_AGENT_COLS} columns wide, so the agent opens in tab ${tabLabel}`);
   return pane;
 }
 
@@ -142,7 +200,7 @@ function startAgent(state, host, mode, name, binding) {
     log(`   closing the reviewer left open by an earlier run (pane ${stale.pane_id})`);
     release({ pane: stale.pane_id, owned: true });
   }
-  const pane = agentPane(state, Object.entries(h.env || {}).flatMap(([k, v]) => ["--env", `${k}=${v}`]));
+  const pane = agentPane(state, host, Object.entries(h.env || {}).flatMap(([k, v]) => ["--env", `${k}=${v}`]));
   const agent = { name, pane, host, owned: true };
   const args = ["agent", "start", name, "--kind", h.kind, "--pane", pane, "--timeout", "60000", "--", ...h[mode], ...modelArgs(h.kind, binding)];
   for (let attempt = 1; ; attempt++) {

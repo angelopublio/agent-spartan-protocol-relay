@@ -188,6 +188,33 @@ test("hasPendingPaste recognises a collapsed, unsent pasted prompt", async () =>
   assert.equal(hasPendingPaste("no input box here"), false);
 });
 
+test("atShellPrompt tells a free pane from one still running an agent", async () => {
+  const { atShellPrompt } = await import("../src/adapters/herdr/adapter.mjs");
+  assert.equal(atShellPrompt({ shell_pid: 1, foreground_processes: [{ pid: 1, argv0: "zsh" }] }), true);
+  assert.equal(atShellPrompt({ shell_pid: 1, foreground_processes: [{ pid: 2, argv0: "cursor-agent" }] }), false);
+  assert.equal(atShellPrompt({ shell_pid: 1, foreground_processes: [] }), false);
+  assert.equal(atShellPrompt(null), false);
+});
+
+test("chooseAgentPane reuses a free pane of the same host before splitting another", async () => {
+  const { chooseAgentPane, agentLabel, MIN_AGENT_COLS } = await import("../src/adapters/herdr/adapter.mjs");
+  const pane = (id, width, height) => ({ pane_id: id, rect: { width, height } });
+  const panes = [pane("cockpit", 200, 46), pane("free", 80, 30), pane("wider", 90, 30)];
+  const reserved = new Set(["cockpit"]);
+  assert.deepEqual(chooseAgentPane(panes, { reserved, reusable: (p) => p.pane_id === "free" }), { reuse: "free" });
+  assert.deepEqual(chooseAgentPane(panes, { reserved, reusable: () => true }), { reuse: "wider" });
+  // Nothing free: the split is the one choosePaneSplit would have made on its own.
+  assert.deepEqual(chooseAgentPane(panes, { reserved }), { split: { pane: "wider", direction: "down" } });
+  // A free pane too narrow for herdr's host detection is not reused.
+  assert.deepEqual(
+    chooseAgentPane([pane("cockpit", 200, 46), pane("thin", MIN_AGENT_COLS - 1, 40)], { reserved, reusable: () => true }),
+    { split: { pane: "cockpit", direction: "right" } },
+  );
+  assert.equal(chooseAgentPane([pane("thin", 10, 10)], { reusable: () => true }), null);
+  assert.equal(agentLabel("Claude Code"), "sp-claude-code");
+  assert.equal(agentLabel("Grok"), "sp-grok");
+});
+
 test("awaitStart watches the input box on every step, not once per grace period", async () => {
   const { awaitStart, hasPendingPaste, STALL_GRACE_MS, STALL_POLL_MS, MAX_PASTE_SUBMITS } = await import("../src/adapters/herdr/adapter.mjs");
   const box = (inner) => ` ${"▄".repeat(40)}\n${inner}\n ${"▀".repeat(40)}\n  Grok 4.6 High Fast   Run Everything`;
