@@ -6,6 +6,7 @@ import { Stop, log } from "./errors.mjs";
 import { loadHosts, resolveHost, withToken, CONFIG_NAME } from "./hosts.mjs";
 import { readBindings, bindingFor, modelArgs } from "./bindings.mjs";
 import { readTask, nextAction, lastVerdict } from "./task.mjs";
+import { readHistory, reviewCycle, captureName } from "./history.mjs";
 
 // Tripwire: a read-only reviewer must leave the working tree untouched.
 function treeFingerprint(repo) {
@@ -30,12 +31,13 @@ function isIgnored(repo, dir) {
   }
 }
 
+export const CAPTURES = `.${CONFIG_NAME}`;
+
 // Review captures go to a git-ignored folder, so they never enter the tree a reviewer is
-// checked against.
+// checked against. They are also the relay's durable convergence record; see history.mjs.
 export function captureDir(repo) {
-  const dir = `.${CONFIG_NAME}`;
-  if (!isIgnored(repo, dir)) throw new Stop(`add ${dir}/ to .gitignore first; review captures must not enter the tree the reviewer is checked against`);
-  return dir;
+  if (!isIgnored(repo, CAPTURES)) throw new Stop(`add ${CAPTURES}/ to .gitignore first; review captures must not enter the tree the reviewer is checked against`);
+  return CAPTURES;
 }
 
 export function persistPrompt({ rel, action, verdict, capture, authorization, next, arbiter }) {
@@ -89,8 +91,25 @@ export function run(opts, adapter) {
   if (!taskNo) throw new Stop("task file name must start with its four-digit number");
   const prefix = adapter.namePrefix;
   const state = { hosts, repo, rel, taskNo, task: readTask(taskPath), producer: null, bindings: readBindings(repo) };
-  const cycles = { plan: 0, implementation: 0 };
-  const arbitrated = { plan: false, implementation: false };
+  // Where this task's captures live. They carry the review budget and the arbitration record,
+  // so both are read from disk per round rather than held in this process.
+  const taskCaptures = path.join(CAPTURES, taskNo);
+  const phaseState = (action) => {
+    const history = readHistory(repo, taskCaptures, action.reviewKind);
+    const cycle = reviewCycle(history, {
+      reviewKind: action.reviewKind,
+      id: action.id,
+      maxCycles: opts.maxCycles,
+      arbiter: action.role === "arbiter",
+      dir: taskCaptures,
+    });
+    return { history, cycle };
+  };
+  const logPhase = (action, { history, cycle }) => {
+    const spent = history.reviews.length ? history.reviews.join(", ") : "none";
+    log(`${action.reviewKind} phase: ${action.role === "arbiter" ? "arbitration" : `review ${cycle} of ${opts.maxCycles}`}; captured so far: ${spent}`);
+    if (history.legacy.length) log(`!  ${history.legacy.join(", ")} in ${taskCaptures} name no phase; counted against the ${action.reviewKind} phase`);
+  };
 
   // AGENTS.md binds host, model and effort per role. Without a binding row, the
   // handoff's "- Host:" line and the client's default model apply.
@@ -112,6 +131,7 @@ export function run(opts, adapter) {
       const arb = state.bindings?.[`arbiter.${action.reviewKind}`];
       log(`arbiter.${action.reviewKind}: ${arb ? `${arb.host}, ${arb.model} ${arb.effort}, after review ${opts.maxCycles} without APPROVED` : "not bound; the run stops at the cycle limit"}`);
     }
+    if (action.readOnly) logPhase(action, phaseState(action));
     log(`next: ${action.id} ${action.role} (${action.readOnly ? "read-only" : "writable"}) on ${host}${binding ? ` via AGENTS.md ${binding.binding}` : " via the handoff"}`);
     log(`launch: ${adapter.describeLaunch(`${prefix}-${taskNo}-${action.role === "arbiter" ? "arbiter" : mode}`, h.kind, [...h[mode], ...modelArgs(h.kind, binding)])}`);
     if (Object.keys(h.env || {}).length) log(`pane env: ${Object.keys(h.env).join(", ")}`);
@@ -119,7 +139,7 @@ export function run(opts, adapter) {
     return;
   }
   adapter.requireEnvironment();
-  const captures = captureDir(repo);
+  captureDir(repo); // the captures are the relay's record: refuse to write them into the tree
   nextAction(state.task); // validate before touching any pane
   state.producer = adapter.findProducer(state, opts.producer, { required: false });
 
@@ -152,20 +172,18 @@ export function run(opts, adapter) {
         continue;
       }
 
-      // Read-only review or arbitration round in a fresh session.
+      // Read-only review or arbitration round in a fresh session. Its place in the phase comes
+      // from the captures on disk, so a restart resumes the budget and keeps an arbitrated phase
+      // closed instead of starting the loop over.
       const arbiter = action.role === "arbiter";
-      if (arbiter) {
-        if (!binding) throw new Stop(`next role is arbiter but AGENTS.md binds no arbiter.${action.reviewKind}`);
-        if (arbitrated[action.reviewKind]) throw new Stop(`the ${action.reviewKind} phase was already arbitrated in this run`);
-        arbitrated[action.reviewKind] = true;
-      } else if (arbitrated[action.reviewKind] || ++cycles[action.reviewKind] > opts.maxCycles) {
-        throw new Stop(arbitrated[action.reviewKind] ? `the ${action.reviewKind} phase was arbitrated; another review of it is not allowed` : `${action.reviewKind} review limit (${opts.maxCycles}) reached`);
-      }
+      if (arbiter && !binding) throw new Stop(`next role is arbiter but AGENTS.md binds no arbiter.${action.reviewKind}`);
+      const phase = phaseState(action);
+      logPhase(action, phase);
       if (!state.producer) state.producer = adapter.findProducer(state, opts.producer, { required: true });
       if (state.producer.host === host) log(`!  ${host} ${arbiter ? "arbitrates" : "reviews"} work produced on ${host}: separate session, same vendor`);
       const reviewer = adapter.startAgent(state, host, "reviewer", `${prefix}-${taskNo}-${arbiter ? "arbiter" : "reviewer"}`, binding);
       const before = treeFingerprint(repo);
-      log(`→  ${action.id} ${action.role} (${arbiter ? `${action.reviewKind} arbitration` : `${action.reviewKind} review ${cycles[action.reviewKind]}/${opts.maxCycles}`}) on ${host}`);
+      log(`→  ${action.id} ${action.role} (${arbiter ? `${action.reviewKind} arbitration` : `${action.reviewKind} review ${phase.cycle}/${opts.maxCycles}`}) on ${host}`);
       adapter.runPrompt(
         reviewer,
         withToken(hosts, host, `${action.prompt}\n\nEnd your response with one final line that reads SPARTAN-VERDICT: followed by that verdict.`),
@@ -175,7 +193,7 @@ export function run(opts, adapter) {
       if (treeFingerprint(repo) !== before) throw new Stop(`the read-only ${action.role} changed the working tree; inspect pane ${reviewer.pane} and git status`);
       const verdict = lastVerdict(output);
       if (!verdict) throw new Stop(`no SPARTAN-VERDICT line found in ${reviewer.name}'s output; read pane ${reviewer.pane}`);
-      const capture = path.join(captures, taskNo, `${action.id}-${arbiter ? "arbitration" : "review"}.txt`);
+      const capture = path.join(taskCaptures, captureName(action.id, action.reviewKind, arbiter));
       fs.mkdirSync(path.join(repo, path.dirname(capture)), { recursive: true });
       fs.writeFileSync(path.join(repo, capture), output);
       adapter.release(reviewer);
@@ -185,7 +203,7 @@ export function run(opts, adapter) {
         verdict,
         arbiter,
         reviewKind: action.reviewKind,
-        cycle: cycles[action.reviewKind],
+        cycle: phase.cycle,
         maxCycles: opts.maxCycles,
         arbiterBound: Boolean(state.bindings?.[`arbiter.${action.reviewKind}`]),
       });

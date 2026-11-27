@@ -110,6 +110,7 @@ The relay then works on its own:
 - Every review runs in a fresh read-only session with the bound model. The relay captures the verdict, closes the session, and hands the result to the producer, which records it in the task file.
 - A writable round reuses the producer only for the same host, role and model; otherwise the relay opens a new session.
 - A phase may take up to three review cycles (`--max-cycles`). When the last one still asks for changes and `AGENTS.md` binds an arbiter for the phase, the arbiter rules once in a fresh read-only session: `APPROVED` advances the phase, `CHANGES_REQUESTED` names one change the producer applies without another review, `BLOCKED` stops for you. Without an arbiter, the run stops at the limit.
+- Both the cycle count and the record of an arbitrated phase are read from the captures on disk, not kept in the relay's memory, so a relay you restart mid-phase resumes the budget it had spent instead of granting it again, and a phase already arbitrated is never reviewed or arbitrated a second time. Each round reports where it stands: `plan phase: review 2 of 3; captured so far: HX-004`.
 - When an agent stops for an approval or a question, herdr notifies you. Answer in that pane and the relay continues.
 
 When the task completes, review the diff and commit it yourself.
@@ -173,7 +174,9 @@ Create `~/.config/spartan-relay/hosts.json` (all repositories) or `<repository>/
 - Reviewers are read-only through each CLI's own flags plus a before-and-after fingerprint of the working tree; a change stops the run.
 - The verdict is read from the reviewer's terminal output (`SPARTAN-VERDICT: …` on the last line), not forced through a schema.
 - Producer writes are not confined to a declared scope. Review the diff before you commit.
-- There is no event log. The task file and the panes are the record; review output is kept under `.spartan-relay/`.
+- There is no event log. The task file and the panes are the record; review output is kept under `.spartan-relay/<NNNN>/`, one capture per read-only round, named after the handoff it consumed and the phase it belongs to.
+- Those captures are also what bounds the review loop, which has three consequences worth knowing. A review you ran by hand, outside the relay, leaves no capture and is not counted. Deleting `.spartan-relay/`, or continuing the task on another machine, returns the phase to zero reviews with no warning, because the folder is local and git-ignored. And a capture counts for its round whatever it contains: the relay reads the verdict line and never judges the findings, so a round that returned a verdict and little else — a reviewer whose pane was too narrow, say — still spends its cycle. Removing or renaming a capture is how you correct that record, and every stop at the limit names the folder.
+- A capture written before the phase was part of its name, `HX-NNN-review.txt`, is counted against the phase the task is in when the relay reads it, and the relay says which files it charged there. That keeps a task already in flight from restarting its budget at zero, at the cost of charging an earlier phase's captures to the current one. Rename such a file to `HX-NNN-<plan|implementation>-<review|arbitration>.txt` to place it exactly.
 
 ## Coming from the Bridge
 
