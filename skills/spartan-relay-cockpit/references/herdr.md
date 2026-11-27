@@ -63,6 +63,6 @@ Cursor shows a `1 task` line while it waits on a background shell, which pushes 
 
 ## Closing a task
 
-Close the agent panes of a finished task (`herdr pane close <pane>`), keeping `cockpit`, `relay`, and the `planner` pane the next task reuses. The relay closes reviewers itself and leaves producers open.
+The relay closes each reviewer when its round is captured, and the producer's pane when the task completes; it leaves the producer open on any other end, and never closes a session you started. So a completed task usually leaves nothing to tidy: check with `herdr pane list` and close what a stopped run left behind (`herdr pane close <pane>`), keeping `cockpit`, `relay`, and the `planner` pane the next task reuses.
 
 When the host denies `herdr pane close`, report it and reuse panes rather than letting one accumulate per task. An allow rule for that command belongs in the cockpit's own permission settings, not in a repository's task.
